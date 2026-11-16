@@ -59,7 +59,7 @@ Errors are `{ "message": "..." }` with a matching status code.
 ## Deploy on Railway
 
 1. **New Project → Deploy from GitHub repo →** `MaveraAI/mavera-ai-social-media-backend`.
-2. Build and start commands come from `railway.json` (`npm ci --include=dev && npm run build`, then `npm start`, health check `/health`).
+2. Build and start commands come from `railway.json` (Railway installs packages, then `npm run build` and `npm start`, health check `/health`).
 3. **Variables:** add everything from `.env.example`:
    - `FRONTEND_URL=https://app.mavera.ai`
    - `BETTER_AUTH_URL=https://api.mavera.ai`
