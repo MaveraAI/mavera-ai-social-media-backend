@@ -4,7 +4,8 @@ import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 import { errorToResponse } from '@/http';
 import { auth } from '@/lib/auth.server';
-import { ensureConnected } from '@/lib/db/mongo.server';
+import { collections, ensureConnected } from '@/lib/db/mongo.server';
+import { completeAgencyInstall } from '@/services/connections';
 import { frontendOrigins } from '@/config';
 import { provisioning } from '@/routes/provisioning';
 import { v1 } from '@/routes/v1';
@@ -34,6 +35,10 @@ app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
   }
   return auth.handler(c.req.raw);
 });
+
+// GHL sends the agency admin back here after installing the Mavera app (state is checked inside).
+app.get('/oauth/ghl/callback', async (c) =>
+  c.redirect(await completeAgencyInstall(await collections(), c.req.query('code'), c.req.query('state'), c.req.query('error'))));
 
 app.route('/v1', v1);
 app.route('/api/public/v1', provisioning);
