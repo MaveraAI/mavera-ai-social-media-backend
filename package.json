@@ -1,0 +1,33 @@
+{
+  "name": "mavera-ai-social-media-backend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Mavera AI social media content manager: REST API (auth, tenants, content, provisioning) on MongoDB.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --target=node22 --sourcemap --outfile=dist/index.js",
+    "start": "node --enable-source-maps dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "import:lovable": "node --env-file=.env scripts/import-lovable-backup.mjs"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.0",
+    "bcryptjs": "^3.0.3",
+    "better-auth": "^1.7.22",
+    "hono": "^4.10.0",
+    "mongodb": "^7.9.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  }
+}
