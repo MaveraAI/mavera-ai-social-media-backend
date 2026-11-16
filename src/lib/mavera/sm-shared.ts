@@ -11,6 +11,7 @@ export const NEW_BRAND_DEFAULTS = {
   language: "British English",
   timezone: "Europe/London",
   image_aspect_ratio: "4:5" as (typeof SM_RATIOS)[number],
+  video_finish: true, subtitles: true, music_volume: "15%",
 };
 
 /** Content languages offered in the brand form (sent to the AI as written). */
@@ -55,6 +56,7 @@ export const clientIdSchema = z.string().regex(/^[a-z0-9-]{2,50}$/, "Brand ID mu
 export const BRAND_LIMITS = {
   name: 120, description: 1000, audience: 500, tone: 300, colours: 300, website: 300, rules: 1000,
   language: 60, timezone: 60, ghl_location_id: 100, ghl_token: 500, ghl_user_id: 100,
+  logo_url: 500, music_url: 500,
 } as const;
 /** Field names as users see them in the forms. */
 export const FIELD_LABELS: Record<string, string> = {
@@ -64,7 +66,8 @@ export const FIELD_LABELS: Record<string, string> = {
   ghl_user_id: "User ID", ghl_accounts: "Connected social accounts", prompt: "Campaign brief", image_posts: "Images",
   video_posts: "Videos", start_date: "Plan posts from", video_seconds: "Video length", schedule_at: "Post at",
   post_ids: "Posts", job_id: "Campaign", email: "Email", limit: "Monthly video allowance", role: "Role",
-  token: "Invitation link",
+  token: "Invitation link", logo_url: "Logo URL", music_url: "Music URL", music_volume: "Music volume",
+  subtitles: "Subtitles", video_finish: "Video finishing",
 };
 const n = (value: number) => value.toLocaleString("en-GB");
 const limited = (field: keyof typeof BRAND_LIMITS) =>
@@ -88,6 +91,17 @@ export function validate<S extends z.ZodType>(schema: S) {
   };
 }
 
+/** A public http(s) link the content service can download, or "" to remove it. */
+const publicUrl = (field: "logo_url" | "music_url") =>
+  z.union([
+    z.literal(""),
+    z.string({ error: `${FIELD_LABELS[field]} must be text` }).trim().max(BRAND_LIMITS[field], `${FIELD_LABELS[field]} must be ${n(BRAND_LIMITS[field])} characters or fewer`)
+      .regex(/^https?:\/\/\S+$/i, `${FIELD_LABELS[field]} must be a public link starting with https://`),
+  ]);
+
+/** Defaults the content service uses when a brand has no finishing settings. */
+export const VIDEO_FINISH_DEFAULTS = { music_volume: "15%", subtitles: true, video_finish: true } as const;
+
 export const brandSchema = z.object({
   client_id: clientIdSchema,
   name: limited("name").trim().min(1, "Brand name is required"),
@@ -105,6 +119,12 @@ export const brandSchema = z.object({
   ghl_token: limited("ghl_token").trim().optional(),
   ghl_user_id: limited("ghl_user_id").trim().optional(),
   ghl_accounts: z.array(z.object({ id: z.string().max(200), platform: z.string().max(50), name: z.string().max(200).optional(), isExpired: z.boolean().optional(), enabled: z.boolean().optional() }).passthrough()).max(50).optional(),
+  // Video finishing (applied by the content service before a video is ready). Empty URLs mean "none".
+  logo_url: publicUrl("logo_url").nullish(),
+  music_url: publicUrl("music_url").nullish(),
+  music_volume: z.string({ error: "Music volume must be text" }).regex(/^(100|[1-9]?\d)%$/, "Music volume must be a percentage from 0% to 100%, e.g. 15%").nullish(),
+  subtitles: z.boolean({ error: "Subtitles must be on or off" }).nullish(),
+  video_finish: z.boolean({ error: "Video finishing must be on or off" }).nullish(),
 });
 export type GhlAccount = { id: string; platform: string; name?: string; isExpired?: boolean; enabled?: boolean };
 
