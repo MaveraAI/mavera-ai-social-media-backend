@@ -147,6 +147,8 @@ export type ConnectOption = { id: string; name: string; avatar?: string | null; 
 export type ConnectionsState = {
   ready: boolean; source: "agency" | "token" | null; reason: string | null;
   can_manage: boolean; accounts: SocialConnection[];
+  /** The brand has a GHL sub-account but Mavera has no token for it yet (paste it once in the panel). */
+  needs_token?: boolean;
 };
 export type GhlAgencyStatus = {
   app_configured: boolean; connected: boolean; agency_admin: boolean;

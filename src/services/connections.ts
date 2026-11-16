@@ -7,7 +7,7 @@ import type { AuthContext } from '@/http';
 import type { Collections } from '@/lib/db/mongo.server';
 import { primaryFrontendUrl } from '@/config';
 import { GHL_SCOPES, ghlApp, ghlFetch, ghlStartUrl, ghlToken } from '@/lib/ghl/ghl.server';
-import { actingUser, brandGhl, companyToken, encryptToken, hashState, n8nBrand, type BrandGhl } from '@/lib/ghl/tokens.server';
+import { actingUser, agencyConnected, brandGhl, companyToken, encryptToken, hashState, locationFor, n8nBrand, type BrandGhl } from '@/lib/ghl/tokens.server';
 import { smRequest as sm } from '@/lib/mavera/sm-api.server';
 import {
   clientIdSchema, connectPlatformSchema, ghlIdSchema, validate,
@@ -113,8 +113,36 @@ export async function brandConnections(ctx: AuthContext, clientId: string): Prom
   const canManage = await subAccountAccess(ctx.db, ctx.userId, account, true);
   let conn: BrandGhl;
   try { conn = await brandGhl(ctx.db, account.id); }
-  catch (e) { return { ready: false, source: null, reason: e instanceof Error ? e.message : 'Not connected', can_manage: canManage, accounts: [] }; }
+  catch (e) {
+    const doc = await ctx.db.subAccounts.findOne({ id: account.id });
+    const needsToken = !!doc?.ghl_location_id && !doc.ghl_private_token_enc && !(ghlApp() && await agencyConnected(ctx.db, doc.agency_id));
+    return {
+      ready: false, source: null, can_manage: canManage, accounts: [], needs_token: needsToken,
+      reason: needsToken ? "Paste this brand's GHL private integration token once to turn on the Connect buttons." : e instanceof Error ? e.message : 'Not connected',
+    };
+  }
   return { ready: true, source: conn.source, reason: null, can_manage: canManage, accounts: (await ghlAccounts(conn)).map(toConnection) };
+}
+
+/**
+ * Saves the brand's Private Integration Token (encrypted) after checking it with GHL, for brands
+ * whose agency has not connected the GHL app. n8n gets the same token so publishing matches.
+ */
+export async function saveConnectionToken(ctx: AuthContext, clientId: string, input: unknown) {
+  const data = validate(z.object({ token: z.string().trim().min(10, 'Paste the whole token').max(500, 'That token is too long') }))(input);
+  const account = await brandAccess(ctx, clientId, true);
+  const doc = await ctx.db.subAccounts.findOne({ id: account.id });
+  const locationId = doc ? await locationFor(ctx.db, doc) : null;
+  if (!locationId) throw new Error('Add the GHL Location ID in the brand form above, save, then paste the token.');
+  await ghlFetch(`/social-media-posting/${encodeURIComponent(locationId)}/accounts`, { token: data.token }).catch((e: unknown) => {
+    throw new Error(e instanceof Error && /401|403|accept|refused/i.test(e.message)
+      ? "GHL did not accept this token. Check it is from this brand's sub-account and allows Social Planner."
+      : e instanceof Error ? e.message : 'Could not check the token with GHL');
+  });
+  const brand = await n8nBrand(account.client_id);
+  await sm('sm/brands', { method: 'POST', body: { ...writableBrand(brand as Record<string, unknown>), ghl_token: data.token } });
+  await ctx.db.subAccounts.updateOne({ id: account.id }, { $set: { ghl_private_token_enc: encryptToken(data.token) } });
+  return brandConnections(ctx, clientId);
 }
 
 export async function startConnection(ctx: AuthContext, clientId: string, input: unknown) {

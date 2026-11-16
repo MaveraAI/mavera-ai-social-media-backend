@@ -41,6 +41,8 @@ v1.post('/ghl/install', async (c) => c.json(await connections.agencyInstallUrl(c
 v1.delete('/ghl', async (c) => c.json(await connections.disconnectAgency(c.var.auth)));
 v1.get('/ghl/locations', async (c) => c.json(await connections.agencyLocations(c.var.auth)));
 v1.get('/brands/:clientId/connections', async (c) => c.json(await connections.brandConnections(c.var.auth, c.req.param('clientId'))));
+// { token }: the brand's private integration token, checked with GHL (fallback when the agency app is not connected)
+v1.post('/brands/:clientId/connections/token', async (c) => c.json(await connections.saveConnectionToken(c.var.auth, c.req.param('clientId'), await readJson(c))));
 // { platform, reconnect? } -> { url } for the platform's login popup
 v1.post('/brands/:clientId/connections/start', async (c) => c.json(await connections.startConnection(c.var.auth, c.req.param('clientId'), await readJson(c))));
 // After the popup: pages/profiles to choose from
