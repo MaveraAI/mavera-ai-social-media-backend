@@ -11,6 +11,7 @@ export const NEW_BRAND_DEFAULTS = {
   language: "British English",
   timezone: "Europe/London",
   image_aspect_ratio: "4:5" as (typeof SM_RATIOS)[number],
+  video_finish: true, subtitles: true, music_volume: "15%",
 };
 
 /** Content languages offered in the brand form (sent to the AI as written). */
@@ -55,6 +56,7 @@ export const clientIdSchema = z.string().regex(/^[a-z0-9-]{2,50}$/, "Brand ID mu
 export const BRAND_LIMITS = {
   name: 120, description: 1000, audience: 500, tone: 300, colours: 300, website: 300, rules: 1000,
   language: 60, timezone: 60, ghl_location_id: 100, ghl_token: 500, ghl_user_id: 100,
+  logo_url: 500, music_url: 500,
 } as const;
 /** Field names as users see them in the forms. */
 export const FIELD_LABELS: Record<string, string> = {
@@ -64,7 +66,8 @@ export const FIELD_LABELS: Record<string, string> = {
   ghl_user_id: "User ID", ghl_accounts: "Connected social accounts", prompt: "Campaign brief", image_posts: "Images",
   video_posts: "Videos", start_date: "Plan posts from", video_seconds: "Video length", schedule_at: "Post at",
   post_ids: "Posts", job_id: "Campaign", email: "Email", limit: "Monthly video allowance", role: "Role",
-  token: "Invitation link",
+  token: "Invitation link", logo_url: "Logo URL", music_url: "Music URL", music_volume: "Music volume",
+  subtitles: "Subtitles", video_finish: "Video finishing",
 };
 const n = (value: number) => value.toLocaleString("en-GB");
 const limited = (field: keyof typeof BRAND_LIMITS) =>
@@ -88,6 +91,17 @@ export function validate<S extends z.ZodType>(schema: S) {
   };
 }
 
+/** A public http(s) link the content service can download, or "" to remove it. */
+const publicUrl = (field: "logo_url" | "music_url") =>
+  z.union([
+    z.literal(""),
+    z.string({ error: `${FIELD_LABELS[field]} must be text` }).trim().max(BRAND_LIMITS[field], `${FIELD_LABELS[field]} must be ${n(BRAND_LIMITS[field])} characters or fewer`)
+      .regex(/^https?:\/\/\S+$/i, `${FIELD_LABELS[field]} must be a public link starting with https://`),
+  ]);
+
+/** Defaults the content service uses when a brand has no finishing settings. */
+export const VIDEO_FINISH_DEFAULTS = { music_volume: "15%", subtitles: true, video_finish: true } as const;
+
 export const brandSchema = z.object({
   client_id: clientIdSchema,
   name: limited("name").trim().min(1, "Brand name is required"),
@@ -105,6 +119,12 @@ export const brandSchema = z.object({
   ghl_token: limited("ghl_token").trim().optional(),
   ghl_user_id: limited("ghl_user_id").trim().optional(),
   ghl_accounts: z.array(z.object({ id: z.string().max(200), platform: z.string().max(50), name: z.string().max(200).optional(), isExpired: z.boolean().optional(), enabled: z.boolean().optional() }).passthrough()).max(50).optional(),
+  // Video finishing (applied by the content service before a video is ready). Empty URLs mean "none".
+  logo_url: publicUrl("logo_url").nullish(),
+  music_url: publicUrl("music_url").nullish(),
+  music_volume: z.string({ error: "Music volume must be text" }).regex(/^(100|[1-9]?\d)%$/, "Music volume must be a percentage from 0% to 100%, e.g. 15%").nullish(),
+  subtitles: z.boolean({ error: "Subtitles must be on or off" }).nullish(),
+  video_finish: z.boolean({ error: "Video finishing must be on or off" }).nullish(),
 });
 export type GhlAccount = { id: string; platform: string; name?: string; isExpired?: boolean; enabled?: boolean };
 
@@ -149,6 +169,20 @@ export const publishSchema = z.object({
   schedule_at: z.string().max(40).regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/, "Choose a valid date and time").optional(),
   platforms: z.array(z.enum(PUBLISH_PLATFORMS)).min(1).max(8).optional(),
 }).refine((d) => !!d.post_ids || !!d.job_id, "Choose posts or a job to publish");
+/** Post ids look like "<job_id>_p<NN>", so the campaign a post belongs to can be found from its id. */
+export const postIdSchema = z.string().regex(/^[A-Za-z0-9_-]{3,120}$/, "Invalid post");
+export const jobIdFromPostId = (postId: string) => postId.replace(/_p\d+$/, "");
+
+/** Edit (same image or video with one change) or regenerate (fresh version from the original idea). */
+export const reviseSchema = z.object({
+  post_id: postIdSchema,
+  mode: z.enum(["edit", "regenerate"], { error: "Choose edit or regenerate" }),
+  instruction: z.string().trim().max(1000, "Change description must be 1,000 characters or fewer").optional(),
+}).refine((d) => d.mode !== "edit" || !!d.instruction, { message: "Describe the change you want", path: ["instruction"] });
+
+/** Switch a post back to an earlier version (the one publishing will use). */
+export const versionSchema = z.object({ post_id: postIdSchema, version_id: z.number({ error: "Choose a version" }).int().positive() });
+
 export type GhlPostRef = { platform: string; account_id: string; ghl_post_id: string };
 export type PublishResult = {
   ok: boolean; mode?: string; errors?: string[];
@@ -180,7 +214,7 @@ export const jobSchema = z
 /** Maximum length of a campaign brief. */
 export const PROMPT_MAX = 10000;
 
-export type Progress = { total: number; ready: number; failed: number; generating: number };
+export type Progress = { total: number; ready: number; failed: number; generating: number; editing?: number };
 export type Job = {
   job_id: string; client_id: string; status: "planning" | "generating" | "done" | "failed";
   prompt: string; image_posts?: number; video_posts?: number; created_at: string; progress?: Progress;
@@ -205,4 +239,12 @@ export type Post = {
   stage?: string | null;
   publish_status?: "scheduled" | "draft" | "partial" | "failed" | null; publish_error?: string | null;
   ghl_post_ids?: GhlPostRef[] | null; publish_requested_at?: string | null;
+  /** "editing" while a change runs, "failed" when it didn't work (edit_error says why), null when idle. */
+  edit_status?: "editing" | "failed" | null; edit_error?: string | null;
+  /** Every result is kept; publishing uses current_version. */
+  versions?: PostVersion[] | null; current_version?: number | null;
+};
+export type PostVersion = {
+  version_id: number; version: number; source: string; instruction: string | null;
+  media?: Post["media"]; created_at?: string;
 };

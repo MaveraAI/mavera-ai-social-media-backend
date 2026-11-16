@@ -39,3 +39,11 @@ v1.get('/jobs', async (c) => c.json(await content.listJobs(c.var.auth, { client_
 v1.get('/jobs/:jobId', async (c) => c.json(await content.getJob(c.var.auth, { job_id: c.req.param('jobId') })));
 v1.post('/jobs', async (c) => c.json(await content.createJob(c.var.auth, await readJson(c))));
 v1.post('/publish', async (c) => c.json(await content.publishPosts(c.var.auth, await readJson(c))));
+
+// ---------- Editing posts ----------
+// { mode: "edit" | "regenerate", instruction? }
+v1.post('/posts/:postId/revise', async (c) =>
+  c.json(await content.revisePost(c.var.auth, { ...obj(await readJson(c)), post_id: c.req.param('postId') }), 202));
+// { version_id }
+v1.post('/posts/:postId/version', async (c) =>
+  c.json(await content.setPostVersion(c.var.auth, { ...obj(await readJson(c)), post_id: c.req.param('postId') })));

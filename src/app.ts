@@ -41,5 +41,7 @@ app.route('/api/public/v1', provisioning);
 app.notFound((c) => c.json({ message: 'Not found' }, 404));
 app.onError((error, c) => {
   const { status, message } = errorToResponse(error);
+  // One line per failed request so a 400 can be traced from the server logs.
+  if (status !== 401) console.warn(`[api] ${c.req.method} ${c.req.path} -> ${status}: ${message}`);
   return c.json({ message }, status as 400);
 });
