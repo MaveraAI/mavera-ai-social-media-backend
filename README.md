@@ -51,6 +51,8 @@ All `/v1` routes need a signed-in user (session cookie). Changes must come from 
 | GET | `/v1/jobs/:jobId` | Campaign with posts |
 | POST | `/v1/jobs` | Start a campaign (reserves monthly videos) |
 | POST | `/v1/publish` | Approve and schedule posts in GHL |
+| POST | `/v1/posts/:postId/revise` | Edit (`{mode:"edit", instruction}`) or regenerate (`{mode:"regenerate"}`) a post; video changes use 1 video from the monthly allowance |
+| POST | `/v1/posts/:postId/version` | Switch a post to an earlier version (`{version_id}`); publishing uses it |
 | POST | `/api/public/v1/subaccounts/create` | Provisioning API (Bearer secret), see [docs](docs/API-SUBACCOUNT-PROVISIONING.md) |
 | GET | `/health` | Health and database check |
 

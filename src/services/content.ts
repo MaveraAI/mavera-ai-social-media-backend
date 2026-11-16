@@ -6,7 +6,7 @@ import type { Collections } from '@/lib/db/mongo.server';
 import { withTransaction } from '@/lib/db/mongo.server';
 import { defaultPlan } from '@/lib/mavera/plans.server';
 import { smRequest as sm } from '@/lib/mavera/sm-api.server';
-import { brandSchema, clientIdSchema, jobSchema, publishSchema, validate, type Brand, type GhlAccount, type Job, type Post, type Progress, type PublishResult } from '@/lib/mavera/sm-shared';
+import { brandSchema, clientIdSchema, jobIdFromPostId, jobSchema, publishSchema, reviseSchema, validate, versionSchema, type Brand, type GhlAccount, type Job, type Post, type Progress, type PublishResult } from '@/lib/mavera/sm-shared';
 import { monthKey } from '@/lib/mavera/tenant-shared';
 import { accountForClient, requireAgency, reserveVideos, subAccountAccess, visibleAccounts } from '@/lib/mavera/tenant.server';
 
@@ -135,6 +135,53 @@ export async function loadGhlAccounts(ctx: AuthContext, input: unknown) {
   const data = validate(z.object({ client_id: clientIdSchema }))(input);
   await accountForClient(ctx.db, ctx.userId, data.client_id, true);
   return (await sm<{ ok: boolean; accounts: GhlAccount[] }>(`sm/ghl-accounts?client_id=${encodeURIComponent(data.client_id)}`)).accounts ?? [];
+}
+
+/**
+ * Edit (same media with one change) or regenerate a post. Video changes cost real money, so each one
+ * uses 1 video from the brand's monthly allowance; image changes are free (like image-only campaigns).
+ */
+export async function revisePost(ctx: AuthContext, input: unknown) {
+  const data = validate(reviseSchema)(input);
+  const { result, account } = await jobForAccount(ctx.db, ctx.userId, jobIdFromPostId(data.post_id));
+  const post = result.posts.find((p) => p.post_id === data.post_id);
+  if (!post) throw new Error('Post not found in this campaign');
+  if (post.edit_status === 'editing') throw new Error('This post is already being changed. Please wait until it finishes.');
+  if (data.mode === 'edit' && post.status !== 'ready') throw new Error('Only ready posts can be edited. Use Regenerate instead.');
+  if (data.mode === 'regenerate' && post.status === 'generating') throw new Error('This post is still being created. Please wait until it finishes.');
+
+  const reservation = post.type === 'video' ? await reserveVideos(ctx.db, withTransaction, ctx.userId, account.id, 1) : null;
+  const tag = { kind: 'revise' as const, post_id: data.post_id };
+  try {
+    const response = await sm<{ ok: boolean; post_id: string; mode: string; status: string }>('sm/post/revise', {
+      method: 'POST', body: { post_id: data.post_id, mode: data.mode, ...(data.instruction ? { instruction: data.instruction } : {}) },
+    });
+    if (reservation) await ctx.db.reservations.updateOne({ id: reservation }, { $set: { ...tag, state: 'done' } });
+    return response;
+  } catch (error) {
+    if (reservation) {
+      // A rejected request gives the video back; a timeout may still have been accepted, so it stays counted.
+      const uncertain = error instanceof Error && /took too long|Could not reach/.test(error.message);
+      await ctx.db.reservations.updateOne({ id: reservation }, { $set: uncertain ? { ...tag, state: 'uncertain' } : { ...tag, state: 'released', charged: 0 } });
+    }
+    throw error;
+  }
+}
+
+/** Switch a post to an earlier version; publishing uses the selected one. */
+export async function setPostVersion(ctx: AuthContext, input: unknown) {
+  const data = validate(versionSchema)(input);
+  const { result } = await jobForAccount(ctx.db, ctx.userId, jobIdFromPostId(data.post_id));
+  const post = result.posts.find((p) => p.post_id === data.post_id);
+  if (!post) throw new Error('Post not found in this campaign');
+  if (post.edit_status === 'editing') throw new Error('Please wait until the current change finishes.');
+  if (post.versions && !post.versions.some((v) => v.version_id === data.version_id)) throw new Error('That version is no longer available.');
+  try {
+    return await sm<{ ok: boolean }>('sm/post/version', { method: 'POST', body: { post_id: data.post_id, version_id: data.version_id } });
+  } catch (error) {
+    if (error instanceof Error && /\b404\b|not found/i.test(error.message)) throw new Error('That version is no longer available.');
+    throw error;
+  }
 }
 
 export async function publishPosts(ctx: AuthContext, input: unknown) {

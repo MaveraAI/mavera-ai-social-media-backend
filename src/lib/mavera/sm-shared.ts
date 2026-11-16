@@ -149,6 +149,20 @@ export const publishSchema = z.object({
   schedule_at: z.string().max(40).regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/, "Choose a valid date and time").optional(),
   platforms: z.array(z.enum(PUBLISH_PLATFORMS)).min(1).max(8).optional(),
 }).refine((d) => !!d.post_ids || !!d.job_id, "Choose posts or a job to publish");
+/** Post ids look like "<job_id>_p<NN>", so the campaign a post belongs to can be found from its id. */
+export const postIdSchema = z.string().regex(/^[A-Za-z0-9_-]{3,120}$/, "Invalid post");
+export const jobIdFromPostId = (postId: string) => postId.replace(/_p\d+$/, "");
+
+/** Edit (same image or video with one change) or regenerate (fresh version from the original idea). */
+export const reviseSchema = z.object({
+  post_id: postIdSchema,
+  mode: z.enum(["edit", "regenerate"], { error: "Choose edit or regenerate" }),
+  instruction: z.string().trim().max(1000, "Change description must be 1,000 characters or fewer").optional(),
+}).refine((d) => d.mode !== "edit" || !!d.instruction, { message: "Describe the change you want", path: ["instruction"] });
+
+/** Switch a post back to an earlier version (the one publishing will use). */
+export const versionSchema = z.object({ post_id: postIdSchema, version_id: z.number({ error: "Choose a version" }).int().positive() });
+
 export type GhlPostRef = { platform: string; account_id: string; ghl_post_id: string };
 export type PublishResult = {
   ok: boolean; mode?: string; errors?: string[];
@@ -180,7 +194,7 @@ export const jobSchema = z
 /** Maximum length of a campaign brief. */
 export const PROMPT_MAX = 10000;
 
-export type Progress = { total: number; ready: number; failed: number; generating: number };
+export type Progress = { total: number; ready: number; failed: number; generating: number; editing?: number };
 export type Job = {
   job_id: string; client_id: string; status: "planning" | "generating" | "done" | "failed";
   prompt: string; image_posts?: number; video_posts?: number; created_at: string; progress?: Progress;
@@ -205,4 +219,12 @@ export type Post = {
   stage?: string | null;
   publish_status?: "scheduled" | "draft" | "partial" | "failed" | null; publish_error?: string | null;
   ghl_post_ids?: GhlPostRef[] | null; publish_requested_at?: string | null;
+  /** "editing" while a change runs, "failed" when it didn't work (edit_error says why), null when idle. */
+  edit_status?: "editing" | "failed" | null; edit_error?: string | null;
+  /** Every result is kept; publishing uses current_version. */
+  versions?: PostVersion[] | null; current_version?: number | null;
+};
+export type PostVersion = {
+  version_id: number; version: number; source: string; instruction: string | null;
+  media?: Post["media"]; created_at?: string;
 };

@@ -39,6 +39,9 @@ export type VideoReservationDoc = {
   charged: number;
   job_id: string | null;
   state: ReservationState;
+  /** "revise" when the video was used by editing or regenerating a post (post_id says which). */
+  kind?: 'campaign' | 'revise';
+  post_id?: string | null;
   created_at: Date;
 };
 /** Better Auth's `user` collection; `_id` is the user's UUID string. */
