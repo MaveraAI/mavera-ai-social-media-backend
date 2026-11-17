@@ -6,7 +6,7 @@ import type { Collections } from '@/lib/db/mongo.server';
 import { withTransaction } from '@/lib/db/mongo.server';
 import { defaultPlan } from '@/lib/mavera/plans.server';
 import { smRequest as sm } from '@/lib/mavera/sm-api.server';
-import { brandSchema, clientIdSchema, jobIdFromPostId, jobSchema, publishSchema, reviseSchema, validate, versionSchema, type Brand, type GhlAccount, type Job, type Post, type Progress, type PublishResult } from '@/lib/mavera/sm-shared';
+import { REFERENCE_MAX_BYTES, decodedSize, referenceUploadSchema, type ReferenceFile, brandSchema, clientIdSchema, jobIdFromPostId, jobSchema, publishSchema, reviseSchema, validate, versionSchema, type Brand, type GhlAccount, type Job, type Post, type Progress, type PublishResult } from '@/lib/mavera/sm-shared';
 import { monthKey } from '@/lib/mavera/tenant-shared';
 import { accountForClient, requireAgency, reserveVideos, subAccountAccess, visibleAccounts } from '@/lib/mavera/tenant.server';
 
@@ -94,10 +94,39 @@ export async function saveBrand(ctx: AuthContext, input: unknown) {
   return safeBrand(saved);
 }
 
+/**
+ * Upload one reference file (image or PDF, max 10 MB) for a brand's next content request.
+ * Anyone who can create content for the brand may upload; the file goes to the content service's storage.
+ */
+export async function uploadReference(ctx: AuthContext, clientId: string, input: unknown) {
+  const id = validate(clientIdSchema)(clientId);
+  const data = validate(referenceUploadSchema)(input);
+  await accountForClient(ctx.db, ctx.userId, id);
+  const size = decodedSize(data.data);
+  if (size < 1) throw new Error('The file is empty');
+  if (size > REFERENCE_MAX_BYTES) throw new Error('File is larger than 10 MB');
+  const r = await sm<{ ok: boolean; reference?: ReferenceFile }>('sm/reference', {
+    method: 'POST', body: { client_id: id, file_name: data.file_name, mime_type: data.mime_type, data: data.data },
+  });
+  if (!r.reference?.url) throw new Error('Upload to storage failed. Please retry.');
+  return r.reference;
+}
+
+/** True when a reference URL is one of this brand's uploads (https, under refs/<client_id>/). */
+export function referenceBelongsTo(url: string, clientId: string) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.pathname.includes(`/refs/${clientId}/`);
+  } catch { return false; }
+}
+
 export async function createJob(ctx: AuthContext, input: unknown) {
   const data = validate(jobSchema)(input);
   const { db, userId } = ctx;
   const account = await accountForClient(db, userId, data.client_id);
+  // References must be files uploaded for this brand (the content service stores them under refs/<client_id>/).
+  if (data.references?.some((r) => !referenceBelongsTo(r.url, data.client_id))) throw new Error('Attach files uploaded for this brand only');
+  if (data.references && !data.references.length) delete data.references;
   const reservation = await reserveVideos(db, withTransaction, userId, account.id, data.video_posts, data.image_posts);
   try {
     const result = await sm<{ status: string; job_id: string }>('sm/create-content', { method: 'POST', body: data });

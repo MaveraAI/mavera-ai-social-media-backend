@@ -6,7 +6,7 @@ import type { Collections } from '@/lib/db/mongo.server';
 const { sm } = vi.hoisted(() => ({ sm: vi.fn() }));
 vi.mock('@/lib/mavera/sm-api.server', () => ({ smRequest: sm }));
 vi.mock('@/lib/db/mongo.server', () => ({ withTransaction: <T>(fn: (s: never) => Promise<T>) => fn(undefined as never) }));
-const { revisePost, setPostVersion } = await import('./content');
+const { revisePost, setPostVersion, uploadReference, createJob, referenceBelongsTo } = await import('./content');
 
 type Doc = Record<string, any>;
 const matches = (doc: Doc, filter: Doc) => Object.entries(filter).every(([k, v]) =>
@@ -25,7 +25,7 @@ function collection(rows: Doc[] = []) {
 const account = { id: 'acc-1', agency_id: 'agency', client_id: 'acme', name: 'Acme', timezone: 'Europe/London', monthly_video_limit: 2, created_at: new Date() };
 function ctx(memberOf = 'acc-1') {
   const db = {
-    subAccounts: collection([{ ...account }]), agencyMemberships: collection(), reservations: collection(),
+    subAccounts: collection([{ ...account }]), agencyMemberships: collection(), reservations: collection(), jobs: collection(),
     subAccountMemberships: collection([{ sub_account_id: memberOf, user_id: 'me', role: 'member', revoked_at: null }]),
   } as unknown as Collections & { [K in keyof Collections]: Collections[K] & { rows: Doc[] } };
   return { db, userId: 'me', user: { id: 'me', email: 'me@example.com', emailVerified: true } } as AuthContext & { db: typeof db };
@@ -85,5 +85,35 @@ describe('switching versions', () => {
     sm.mockImplementation(async (path: string) => (path.startsWith('sm/job?') ? job([withVersions]) : { ok: true }));
     await expect(setPostVersion(c, { post_id: video.post_id, version_id: 101 })).resolves.toEqual({ ok: true });
     await expect(setPostVersion(c, { post_id: video.post_id, version_id: 999 })).rejects.toThrow('no longer available');
+  });
+});
+
+describe('reference uploads', () => {
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  it('uploads a file for a brand the user can access and returns the stored reference', async () => {
+    sm.mockResolvedValue({ ok: true, reference: { url: 'https://x.supabase.co/storage/v1/object/public/sm-media/refs/acme/1_a.png', mime_type: 'image/png', name: 'a.png', size: 72 } });
+    await expect(uploadReference(ctx(), 'acme', { file_name: 'a.png', mime_type: 'image/png', data: png })).resolves.toMatchObject({ name: 'a.png' });
+    expect(sm).toHaveBeenCalledWith('sm/reference', { method: 'POST', body: { client_id: 'acme', file_name: 'a.png', mime_type: 'image/png', data: png } });
+  });
+  it('refuses other file types, files over 10 MB and brands the user cannot access', async () => {
+    await expect(uploadReference(ctx(), 'acme', { file_name: 'a.gif', mime_type: 'image/gif', data: png })).rejects.toThrow(/PNG, JPEG, WEBP or PDF/);
+    const big = 'A'.repeat(Math.ceil((10 * 1024 * 1024 + 10) / 3) * 4);
+    await expect(uploadReference(ctx(), 'acme', { file_name: 'big.png', mime_type: 'image/png', data: big })).rejects.toThrow('File is larger than 10 MB');
+    await expect(uploadReference(ctx('another-account'), 'acme', { file_name: 'a.png', mime_type: 'image/png', data: png })).rejects.toThrow(/access denied/i);
+    expect(sm).not.toHaveBeenCalled();
+  });
+  it('only accepts references uploaded for the same brand', async () => {
+    expect(referenceBelongsTo('https://x.supabase.co/storage/v1/object/public/sm-media/refs/acme/1_a.png', 'acme')).toBe(true);
+    expect(referenceBelongsTo('https://x.supabase.co/storage/v1/object/public/sm-media/refs/other-brand/1_a.png', 'acme')).toBe(false);
+    expect(referenceBelongsTo('http://x.example/refs/acme/a.png', 'acme')).toBe(false);
+    const input = { client_id: 'acme', prompt: 'Coffee in our shop', image_posts: 1, video_posts: 0, references: [{ url: 'https://evil.example/refs/other/a.png', mime_type: 'image/png', name: 'a.png' }] };
+    await expect(createJob(ctx(), input)).rejects.toThrow('Attach files uploaded for this brand only');
+    expect(sm).not.toHaveBeenCalled();
+  });
+  it('sends references with the content request', async () => {
+    sm.mockResolvedValue({ status: 'planning', job_id: 'job_9_new' });
+    const ref = { url: 'https://x.supabase.co/storage/v1/object/public/sm-media/refs/acme/1_menu.pdf', mime_type: 'application/pdf', name: 'menu.pdf', note: 'our menu' };
+    await createJob(ctx(), { client_id: 'acme', prompt: 'Coffee in our shop', image_posts: 1, video_posts: 0, references: [ref] });
+    expect(sm).toHaveBeenCalledWith('sm/create-content', { method: 'POST', body: expect.objectContaining({ references: [ref] }) });
   });
 });
