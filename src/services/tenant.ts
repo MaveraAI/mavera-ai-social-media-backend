@@ -6,7 +6,8 @@ import { withTransaction } from '@/lib/db/mongo.server';
 import { sendMail, linkEmail } from '@/lib/mail.server';
 import { invitationState } from '@/lib/mavera/invitation-state';
 import { validate } from '@/lib/mavera/sm-shared';
-import { monthKey, remainingVideos } from '@/lib/mavera/tenant-shared';
+import { monthKey, remaining, type MonthlyUsage } from '@/lib/mavera/tenant-shared';
+import { imagesUsed } from '@/lib/mavera/tenant.server';
 import { accountById, acceptInvitationFor, changeMemberAccess, iso, requireAgency, subAccountAccess, visibleAccounts } from '@/lib/mavera/tenant.server';
 import { isAllowedOrigin } from '@/config';
 
@@ -33,17 +34,21 @@ export async function accountUsage(ctx: AuthContext, input: unknown) {
   const data = validate(z.object({ account_id: id }))(input);
   const account = await accountById(ctx.db, ctx.userId, data.account_id);
   const month = monthKey(new Date(), account.timezone);
-  const rows = await ctx.db.reservations.find({ sub_account_id: account.id, month_key: month }, { projection: { _id: 0, charged: 1 } }).toArray()
+  const rows = await ctx.db.reservations.find({ sub_account_id: account.id, month_key: month }, { projection: { _id: 0, charged: 1, images: 1, state: 1 } }).toArray()
     .catch(() => { throw new Error('Could not load usage'); });
   const used = rows.reduce((n, r) => n + r.charged, 0);
-  return { month, limit: account.monthly_video_limit, used, remaining: remainingVideos(account.monthly_video_limit, used) };
+  const images = imagesUsed(rows);
+  return {
+    month, limit: account.monthly_video_limit, used, remaining: remaining(account.monthly_video_limit, used),
+    images: { limit: account.monthly_image_limit, used: images, remaining: remaining(account.monthly_image_limit, images) },
+  } satisfies MonthlyUsage;
 }
 
 export async function setVideoLimit(ctx: AuthContext, input: unknown) {
-  const data = validate(z.object({ account_id: id, limit: z.number().int().min(0).max(100000) }))(input);
+  const data = validate(z.object({ account_id: id, limit: z.number().int().min(0).max(100000), image_limit: z.number().int().min(0).max(100000).optional() }))(input);
   const account = await accountById(ctx.db, ctx.userId, data.account_id);
   await requireAgency(ctx.db, ctx.userId, account.agency_id);
-  await ctx.db.subAccounts.updateOne({ id: account.id }, { $set: { monthly_video_limit: data.limit } })
+  await ctx.db.subAccounts.updateOne({ id: account.id }, { $set: { monthly_video_limit: data.limit, ...(data.image_limit !== undefined ? { monthly_image_limit: data.image_limit } : {}) } })
     .catch(() => { throw new Error('Could not save video allowance'); });
   return { ok: true };
 }

@@ -11,6 +11,8 @@ export type SubAccountDoc = {
   name: string;
   timezone: string;
   monthly_video_limit: number;
+  /** Missing on older accounts: the default plan's image allowance applies. */
+  monthly_image_limit?: number;
   created_at: Date;
   /** Bumped inside transactions so concurrent writers on one sub-account conflict and retry, like SELECT ... FOR UPDATE. */
   lock_version?: number;
@@ -37,6 +39,8 @@ export type VideoReservationDoc = {
   month_key: string;
   requested: number;
   charged: number;
+  /** Images this campaign asked for (counted against the monthly image allowance unless released). */
+  images?: number;
   job_id: string | null;
   state: ReservationState;
   /** "revise" when the video was used by editing or regenerating a post (post_id says which). */

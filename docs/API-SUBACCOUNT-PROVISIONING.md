@@ -60,6 +60,7 @@ Steps 1–3 run in one database transaction. If step 4 fails, steps 1–3 are un
     "brand_name": "John's Clothing Brand",
     "plan": "default",
     "monthly_video_limit": 10,
+    "monthly_image_limit": 30,
     "password_setup_email_sent": true
   }
 }
@@ -100,7 +101,8 @@ In Postman: method **POST**, the URL above, **Authorization → Bearer Token** w
 |---|---|---|
 | `PROVISIONING_API_SECRET` | Yes | The Bearer token (at least 32 characters). Generate with `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`. |
 | `PROVISIONING_API_SECRET_PREVIOUS` | No | Old secret still accepted while you rotate to a new one. Remove it once callers are updated. |
-| `DEFAULT_MONTHLY_VIDEO_LIMIT` | No | Monthly video allowance every new sub-account receives (default `0`). Used by this API **and** by sub-accounts created in the app, so both always match. Images have no monthly limit. |
+| `DEFAULT_MONTHLY_VIDEO_LIMIT` | No | Monthly video allowance every new sub-account receives (default `10`). Used by this API **and** by sub-accounts created in the app, so both always match. |
+| `DEFAULT_MONTHLY_IMAGE_LIMIT` | No | Monthly image allowance every new sub-account receives (default `30`). |
 | `DEFAULT_PLAN_NAME` | No | Plan name returned in responses (default `default`). |
 | `PROVISIONING_AGENCY_ID` | No | Agency that owns new sub-accounts. Not needed while there is exactly one agency. |
 | `PROVISIONING_RATE_LIMIT_PER_MINUTE` | No | Requests per minute per caller IP (default `20`). Applies before the token check. |

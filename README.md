@@ -35,8 +35,8 @@ All `/v1` routes need a signed-in user (session cookie). Changes must come from 
 |---|---|---|
 | GET/POST | `/api/auth/*` | Better Auth: sign up, sign in, sign out, session, email confirmation, password reset |
 | GET | `/v1/accounts` | Sub-accounts the user can see, agency admin flag, roles |
-| GET | `/v1/accounts/:accountId/usage` | Monthly video usage and allowance |
-| PUT | `/v1/accounts/:accountId/video-limit` | Set the monthly video allowance (agency admins) |
+| GET | `/v1/accounts/:accountId/usage` | This month's video and image usage and allowances |
+| PUT | `/v1/accounts/:accountId/video-limit` | Set the monthly video (`limit`) and image (`image_limit`) allowances (agency admins) |
 | GET | `/v1/accounts/:accountId/people` | Members and invitations (sub-account admins) |
 | POST | `/v1/accounts/:accountId/members/:userId` | Change a member: `admin`, `member`, `remove`, `restore` |
 | POST | `/v1/accounts/:accountId/invitations` | Invite by email |
@@ -70,7 +70,7 @@ Errors are `{ "message": "..." }` with a matching status code.
 3. **Variables:** add everything from `.env.example`:
    - `FRONTEND_URL=https://app.mavera.ai`
    - `BETTER_AUTH_URL=https://api.mavera.ai`
-   - `BETTER_AUTH_SECRET`, `MONGODB_URI`, `MONGODB_DB`, `SM_API_SECRET`, `PROVISIONING_API_SECRET`, `DEFAULT_MONTHLY_VIDEO_LIMIT`, `RESEND_API_KEY`, `MAIL_FROM`
+   - `BETTER_AUTH_SECRET`, `MONGODB_URI`, `MONGODB_DB`, `SM_API_SECRET`, `PROVISIONING_API_SECRET`, `DEFAULT_MONTHLY_VIDEO_LIMIT` (10), `DEFAULT_MONTHLY_IMAGE_LIMIT` (30), `RESEND_API_KEY`, `MAIL_FROM`
    - Railway sets `PORT` itself.
 4. **Settings → Region:** Europe West (close to the MongoDB cluster in Ireland).
 5. **Settings → Networking → Custom Domain:** `api.mavera.ai`. Add the CNAME Railway shows in Cloudflare DNS (proxy off, grey cloud, or SSL mode Full (strict) if proxied).

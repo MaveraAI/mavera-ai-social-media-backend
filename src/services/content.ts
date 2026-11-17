@@ -11,6 +11,7 @@ import { monthKey } from '@/lib/mavera/tenant-shared';
 import { accountForClient, requireAgency, reserveVideos, subAccountAccess, visibleAccounts } from '@/lib/mavera/tenant.server';
 
 const defaultVideoLimit = () => defaultPlan().monthly_video_limit;
+const defaultImageLimit = () => defaultPlan().monthly_image_limit;
 
 /** GHL tokens, sub-account and user IDs stay server-side; users never see them. */
 function safeBrand(brand: Brand): Brand {
@@ -42,7 +43,7 @@ export async function importExistingBrands(ctx: AuthContext) {
   try {
     if (brands.length) await db.subAccounts.bulkWrite(brands.map((b) => ({ updateOne: {
       filter: { client_id: b.client_id },
-      update: { $setOnInsert: { id: crypto.randomUUID(), agency_id: agency, client_id: b.client_id, name: b.name, timezone: b.timezone || 'Europe/London', monthly_video_limit: videoLimit, created_at: new Date() } },
+      update: { $setOnInsert: { id: crypto.randomUUID(), agency_id: agency, client_id: b.client_id, name: b.name, timezone: b.timezone || 'Europe/London', monthly_video_limit: videoLimit, monthly_image_limit: defaultImageLimit(), created_at: new Date() } },
       upsert: true,
     } })), { ordered: false });
   } catch (error) {
@@ -61,7 +62,7 @@ export async function importExistingBrands(ctx: AuthContext) {
       const charged = detail.done ? detail.posts.filter((p) => p.type === 'video' && p.status === 'ready').length : requested;
       await db.reservations.insertOne({
         id: crypto.randomUUID(), sub_account_id: account.id, user_id: userId, month_key: monthKey(new Date(job.created_at), account.timezone),
-        requested, charged, job_id: job.job_id, state: detail.done ? 'done' : 'accepted', created_at: new Date(job.created_at),
+        requested, charged, images: job.image_posts ?? detail.posts.filter((p) => p.type === 'image').length, job_id: job.job_id, state: detail.done ? 'done' : 'accepted', created_at: new Date(job.created_at),
       }).catch(() => { throw new Error('Could not import video usage history'); });
     }
   }
@@ -84,7 +85,7 @@ export async function saveBrand(ctx: AuthContext, input: unknown) {
   // n8n assigns the GHL sub-account and user itself a few seconds after saving (ghl_status).
   const saved = (await sm<{ ok: boolean; brand: Brand }>('sm/brands', { method: 'POST', body: data })).brand;
   if (agency) {
-    await db.subAccounts.insertOne({ id: crypto.randomUUID(), agency_id: agency, client_id: data.client_id, name: data.name, timezone: data.timezone || 'Europe/London', monthly_video_limit: defaultVideoLimit(), created_at: new Date() })
+    await db.subAccounts.insertOne({ id: crypto.randomUUID(), agency_id: agency, client_id: data.client_id, name: data.name, timezone: data.timezone || 'Europe/London', monthly_video_limit: defaultVideoLimit(), monthly_image_limit: defaultImageLimit(), created_at: new Date() })
       .catch(() => { throw new Error('Brand saved but sub-account assignment needs administrator attention'); });
   } else {
     await db.subAccounts.updateOne({ client_id: data.client_id }, { $set: { name: data.name, ...(data.timezone ? { timezone: data.timezone } : {}) } })
@@ -97,7 +98,7 @@ export async function createJob(ctx: AuthContext, input: unknown) {
   const data = validate(jobSchema)(input);
   const { db, userId } = ctx;
   const account = await accountForClient(db, userId, data.client_id);
-  const reservation = await reserveVideos(db, withTransaction, userId, account.id, data.video_posts);
+  const reservation = await reserveVideos(db, withTransaction, userId, account.id, data.video_posts, data.image_posts);
   try {
     const result = await sm<{ status: string; job_id: string }>('sm/create-content', { method: 'POST', body: data });
     const tracked = await Promise.all([

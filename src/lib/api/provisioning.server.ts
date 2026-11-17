@@ -138,7 +138,7 @@ export async function provisionSubAccount(deps: ProvisionDeps, input: ProvisionI
     await deps.tx(async (session) => {
       await db.users.insertOne({ _id: userId, name: input.user_name, email, emailVerified: true, image: null, createdAt: now, updatedAt: now }, { session });
       await db.authAccounts.insertOne({ _id: crypto.randomUUID(), accountId: userId, providerId: 'credential', userId, password: passwordHash, createdAt: now, updatedAt: now }, { session });
-      await db.subAccounts.insertOne({ id: accountId, agency_id: agencyId, client_id: clientId, name: input.brand_name, timezone, monthly_video_limit: deps.plan.monthly_video_limit, created_at: now }, { session });
+      await db.subAccounts.insertOne({ id: accountId, agency_id: agencyId, client_id: clientId, name: input.brand_name, timezone, monthly_video_limit: deps.plan.monthly_video_limit, monthly_image_limit: deps.plan.monthly_image_limit, created_at: now }, { session });
       await db.subAccountMemberships.insertOne({ sub_account_id: accountId, user_id: userId, role: 'admin', revoked_at: null }, { session });
     });
   } catch (error) {
@@ -174,6 +174,7 @@ export async function provisionSubAccount(deps: ProvisionDeps, input: ProvisionI
         brand_name: input.brand_name,
         plan: deps.plan.name,
         monthly_video_limit: deps.plan.monthly_video_limit,
+        monthly_image_limit: deps.plan.monthly_image_limit,
         password_setup_email_sent: emailed,
       },
     },

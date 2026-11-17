@@ -37,7 +37,7 @@ function db() {
 }
 const tx = <T,>(fn: (s: never) => Promise<T>) => fn(undefined as never);
 function deps(d: ReturnType<typeof db>, sm: ProvisionDeps['sm'] = vi.fn(async (path: string) => (path.startsWith('sm/brands?') ? { brands: [] } : { ok: true })) as ProvisionDeps['sm']): ProvisionDeps {
-  return { db: d, tx, sm, hashPassword: async (p) => `hashed:${p.length}`, plan: { name: 'default', monthly_video_limit: 10 }, agencyId: undefined, sendPasswordSetup: async () => true };
+  return { db: d, tx, sm, hashPassword: async (p) => `hashed:${p.length}`, plan: { name: 'default', monthly_video_limit: 10, monthly_image_limit: 30 }, agencyId: undefined, sendPasswordSetup: async () => true };
 }
 const input = parseProvisionInput({ user_name: 'John Doe', email: 'John@Example.com', brand_name: "John's Clothing Brand" });
 
@@ -66,10 +66,10 @@ describe('request validation', () => {
 });
 
 describe('default plan', () => {
-  it('reads the configured allowance and falls back to 0', () => {
-    expect(defaultPlan({ DEFAULT_MONTHLY_VIDEO_LIMIT: '10' })).toEqual({ name: 'default', monthly_video_limit: 10 });
-    expect(defaultPlan({})).toEqual({ name: 'default', monthly_video_limit: 0 });
-    expect(defaultPlan({ DEFAULT_MONTHLY_VIDEO_LIMIT: 'lots' }).monthly_video_limit).toBe(0);
+  it('gives 10 videos and 30 images a month unless configured', () => {
+    expect(defaultPlan({})).toEqual({ name: 'default', monthly_video_limit: 10, monthly_image_limit: 30 });
+    expect(defaultPlan({ DEFAULT_MONTHLY_VIDEO_LIMIT: '4', DEFAULT_MONTHLY_IMAGE_LIMIT: '12' })).toEqual({ name: 'default', monthly_video_limit: 4, monthly_image_limit: 12 });
+    expect(defaultPlan({ DEFAULT_MONTHLY_VIDEO_LIMIT: 'lots', DEFAULT_MONTHLY_IMAGE_LIMIT: '-1' })).toMatchObject({ monthly_video_limit: 10, monthly_image_limit: 30 });
   });
 });
 
@@ -80,7 +80,7 @@ describe('sub-account provisioning', () => {
     const result = await provisionSubAccount(deps(d, sm), input);
     expect(result.status).toBe(201);
     const data = result.body['data'] as Record<string, unknown>;
-    expect(data).toMatchObject({ client_id: 'john-s-clothing-brand', brand_name: "John's Clothing Brand", plan: 'default', monthly_video_limit: 10, password_setup_email_sent: true });
+    expect(data).toMatchObject({ client_id: 'john-s-clothing-brand', brand_name: "John's Clothing Brand", plan: 'default', monthly_video_limit: 10, monthly_image_limit: 30, password_setup_email_sent: true });
     expect(d.users.rows[0]).toMatchObject({ _id: data['user_id'], email: 'john@example.com', name: 'John Doe', emailVerified: true });
     expect(d.authAccounts.rows[0]).toMatchObject({ userId: data['user_id'], providerId: 'credential' });
     expect(d.subAccounts.rows[0]).toMatchObject({ id: data['account_id'], agency_id: 'agency-1', monthly_video_limit: 10, timezone: 'Europe/London' });
