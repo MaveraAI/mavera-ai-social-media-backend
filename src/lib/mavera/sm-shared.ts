@@ -218,6 +218,35 @@ export const PLATFORM_LABELS: Record<string, string> = {
 };
 export const label = (p: string) => PLATFORM_LABELS[p] ?? p;
 
+// ---------- Reference uploads (images or PDFs the AI should match) ----------
+export const REFERENCE_TYPES = ["image/png", "image/jpeg", "image/webp", "application/pdf"] as const;
+export type ReferenceType = (typeof REFERENCE_TYPES)[number];
+export const REFERENCE_MAX_FILES = 5;
+export const REFERENCE_MAX_BYTES = 10 * 1024 * 1024;
+export const REFERENCE_NOTE_MAX = 300;
+const referenceType = z.enum(REFERENCE_TYPES, { error: "Only PNG, JPEG, WEBP or PDF files can be used as references" });
+/** One uploaded file sent with a content request (the URL comes from the upload call). */
+export const referenceSchema = z.object({
+  url: z.string().max(2000).regex(/^https:\/\/\S+$/i, "Reference link must start with https://"),
+  mime_type: referenceType,
+  name: z.string().trim().min(1, "Reference name is required").max(200),
+  note: z.string().trim().max(REFERENCE_NOTE_MAX, `Reference note must be ${REFERENCE_NOTE_MAX} characters or fewer`).optional(),
+});
+export type ReferenceFile = z.infer<typeof referenceSchema> & { size?: number };
+/** Upload body: the file as base64 or a data: URL (at most 10 MB once decoded). */
+export const referenceUploadSchema = z.object({
+  file_name: z.string().trim().min(1, "File name is required").max(200),
+  mime_type: referenceType,
+  data: z.string().min(1, "The file is empty").max(15_000_000, "File is larger than 10 MB"),
+});
+/** Bytes in a base64 (or data: URL) string once decoded. */
+export function decodedSize(data: string) {
+  const b64 = data.includes(",") ? data.slice(data.indexOf(",") + 1) : data;
+  const clean = b64.replace(/\s/g, "");
+  const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
+  return Math.floor((clean.length * 3) / 4) - padding;
+}
+
 export const jobSchema = z
   .object({
     client_id: clientIdSchema,
@@ -229,6 +258,8 @@ export const jobSchema = z
     image_aspect_ratio: z.enum(SM_RATIOS).optional(),
     // 8 (default) or 30: 30 makes ~30–40 second videos (8–12 minutes, about $3.80 each).
     video_seconds: z.union([z.literal(8), z.literal(30)]).optional(),
+    // Optional files (images, PDFs) the AI should match: up to 5, uploaded first with POST /sm/reference.
+    references: z.array(referenceSchema).max(REFERENCE_MAX_FILES, `Attach ${REFERENCE_MAX_FILES} references or fewer`).optional(),
   })
   .refine((j) => j.image_posts + j.video_posts >= 1, "Request at least one image or video");
 

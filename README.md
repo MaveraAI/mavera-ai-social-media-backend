@@ -50,6 +50,7 @@ All `/v1` routes need a signed-in user (session cookie). Changes must come from 
 | GET | `/v1/jobs?client_id=` | Campaigns for a brand |
 | GET | `/v1/jobs/:jobId` | Campaign with posts |
 | POST | `/v1/jobs` | Start a campaign (reserves monthly videos) |
+| POST | `/v1/brands/:clientId/references` | Upload a reference image or PDF (max 10 MB) for the next campaign; send the returned files as `references` on `POST /v1/jobs` (max 5) |
 | POST | `/v1/publish` | Approve and schedule posts in GHL |
 | POST | `/v1/posts/:postId/revise` | Edit (`{mode:"edit", instruction}`) or regenerate (`{mode:"regenerate"}`) a post; video changes use 1 video from the monthly allowance |
 | POST | `/v1/posts/:postId/version` | Switch a post to an earlier version (`{version_id}`); publishing uses it |

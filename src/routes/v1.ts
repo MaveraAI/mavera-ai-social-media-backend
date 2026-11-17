@@ -1,5 +1,6 @@
 // REST API used by the frontend. All routes need a signed-in user; changes must come from the frontend's origin.
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { readJson, requireAuth, requireTrustedOrigin, type AppEnv } from '@/http';
 import * as connections from '@/services/connections';
 import * as content from '@/services/content';
@@ -52,6 +53,10 @@ v1.post('/brands/:clientId/connect/retry', async (c) => c.json(await connections
 v1.get('/jobs', async (c) => c.json(await content.listJobs(c.var.auth, { client_id: c.req.query('client_id') })));
 v1.get('/jobs/:jobId', async (c) => c.json(await content.getJob(c.var.auth, { job_id: c.req.param('jobId') })));
 v1.post('/jobs', async (c) => c.json(await content.createJob(c.var.auth, await readJson(c))));
+// { file_name, mime_type, data (base64 or data: URL) } -> { url, mime_type, name, size }. Files up to 10 MB (about 14 MB as base64).
+v1.post('/brands/:clientId/references',
+  bodyLimit({ maxSize: 15 * 1024 * 1024, onError: (c) => c.json({ message: 'File is larger than 10 MB' }, 413) }),
+  async (c) => c.json(await content.uploadReference(c.var.auth, c.req.param('clientId'), await readJson(c))));
 v1.post('/publish', async (c) => c.json(await content.publishPosts(c.var.auth, await readJson(c))));
 
 // ---------- Editing posts ----------
