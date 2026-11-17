@@ -132,6 +132,29 @@ export type GhlAccount = { id: string; platform: string; name?: string; isExpire
 const GHL_PLATFORM_ALIASES: Record<string, string> = { twitter: "x", google: "google_business" };
 export const toAppPlatform = (platform: string) => GHL_PLATFORM_ALIASES[platform] ?? platform;
 
+// ---------- Connecting social accounts (GHL Social Planner, run by our backend) ----------
+/** Platforms a user can connect from Mavera, in GHL's names (see toAppPlatform for ours). */
+export const CONNECT_PLATFORMS = ["facebook", "instagram", "linkedin", "google", "tiktok", "youtube", "pinterest", "threads"] as const;
+export type ConnectPlatform = (typeof CONNECT_PLATFORMS)[number];
+export const connectPlatformSchema = z.enum(CONNECT_PLATFORMS, { error: "Choose a supported platform" });
+/** IDs GHL hands back from its popup (open-ended, so only the safe characters are allowed). */
+export const ghlIdSchema = z.string().regex(/^[A-Za-z0-9_.:-]{1,200}$/, "Invalid account");
+/** A social account connected to a brand. */
+export type SocialConnection = { id: string; platform: string; name: string; avatar?: string | null; kind?: string | null; expired: boolean };
+/** A page, profile or location the user can pick after logging in to a platform. */
+export type ConnectOption = { id: string; name: string; avatar?: string | null; kind?: string | null; detail?: string | null; connected?: boolean };
+/** How a brand reaches GHL: the agency's app install, the brand's own token, or not yet. */
+export type ConnectionsState = {
+  ready: boolean; source: "agency" | "token" | null; reason: string | null;
+  can_manage: boolean; accounts: SocialConnection[];
+  /** The brand has a GHL sub-account but Mavera has no token for it yet (paste it once in the panel). */
+  needs_token?: boolean;
+};
+export type GhlAgencyStatus = {
+  app_configured: boolean; connected: boolean; agency_admin: boolean;
+  company_id?: string | null; connected_at?: string | null;
+};
+
 /** Which accounts will actually be posted to: ticked and not expired. */
 export function connectionStatus(accounts?: GhlAccount[] | null) {
   // The content API sends null for brands without connected accounts.

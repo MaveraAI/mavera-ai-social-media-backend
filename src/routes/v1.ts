@@ -1,6 +1,7 @@
 // REST API used by the frontend. All routes need a signed-in user; changes must come from the frontend's origin.
 import { Hono } from 'hono';
 import { readJson, requireAuth, requireTrustedOrigin, type AppEnv } from '@/http';
+import * as connections from '@/services/connections';
 import * as content from '@/services/content';
 import * as tenant from '@/services/tenant';
 
@@ -33,6 +34,24 @@ v1.get('/brands', async (c) => {
 v1.post('/brands', async (c) => c.json(await content.saveBrand(c.var.auth, await readJson(c))));
 v1.post('/brands/import', async (c) => c.json(await content.importExistingBrands(c.var.auth)));
 v1.get('/brands/:clientId/ghl-accounts', async (c) => c.json(await content.loadGhlAccounts(c.var.auth, { client_id: c.req.param('clientId') })));
+
+// ---------- Social connections (GHL behind the scenes) ----------
+v1.get('/ghl', async (c) => c.json(await connections.agencyStatus(c.var.auth)));
+v1.post('/ghl/install', async (c) => c.json(await connections.agencyInstallUrl(c.var.auth)));
+v1.delete('/ghl', async (c) => c.json(await connections.disconnectAgency(c.var.auth)));
+v1.get('/ghl/locations', async (c) => c.json(await connections.agencyLocations(c.var.auth)));
+v1.get('/brands/:clientId/connections', async (c) => c.json(await connections.brandConnections(c.var.auth, c.req.param('clientId'))));
+// { token }: the brand's private integration token, checked with GHL (fallback when the agency app is not connected)
+v1.post('/brands/:clientId/connections/token', async (c) => c.json(await connections.saveConnectionToken(c.var.auth, c.req.param('clientId'), await readJson(c))));
+// { platform, reconnect? } -> { url } for the platform's login popup
+v1.post('/brands/:clientId/connections/start', async (c) => c.json(await connections.startConnection(c.var.auth, c.req.param('clientId'), await readJson(c))));
+// After the popup: pages/profiles to choose from
+v1.get('/brands/:clientId/connections/:platform/:accountId/options', async (c) =>
+  c.json(await connections.connectionOptions(c.var.auth, c.req.param('clientId'), { platform: c.req.param('platform'), account_id: c.req.param('accountId') })));
+// { option_id }
+v1.post('/brands/:clientId/connections/:platform/:accountId', async (c) =>
+  c.json(await connections.attachConnection(c.var.auth, c.req.param('clientId'), { ...obj(await readJson(c)), platform: c.req.param('platform'), account_id: c.req.param('accountId') })));
+v1.delete('/brands/:clientId/connections/:id', async (c) => c.json(await connections.removeConnection(c.var.auth, c.req.param('clientId'), { id: c.req.param('id') })));
 
 // ---------- Campaigns and publishing ----------
 v1.get('/jobs', async (c) => c.json(await content.listJobs(c.var.auth, { client_id: c.req.query('client_id') })));
