@@ -3,6 +3,7 @@
 // change_sub_account_member, accept_sub_account_invitation). MongoDB has no row
 // level security, so every server function must go through these checks.
 import type { ClientSession } from 'mongodb';
+import { defaultPlan } from '@/lib/mavera/plans.server';
 import type { Collections, InvitationDoc, SubAccountDoc } from '@/lib/db/mongo.server';
 import { monthKey, type SubAccount } from './tenant-shared';
 
@@ -18,6 +19,7 @@ export function toSubAccount(doc: SubAccountDoc): SubAccount & { created_at: str
     name: doc.name,
     timezone: doc.timezone,
     monthly_video_limit: doc.monthly_video_limit,
+    monthly_image_limit: doc.monthly_image_limit ?? defaultPlan().monthly_image_limit,
     created_at: new Date(doc.created_at).toISOString(),
   };
 }
@@ -74,20 +76,30 @@ async function lockSubAccount(c: Collections, id: string, session: ClientSession
 
 type Tx = <T>(fn: (session: ClientSession) => Promise<T>) => Promise<T>;
 
+/** Images reserved this month; released campaigns give their images back. */
+export const imagesUsed = (rows: { images?: number | undefined; state?: string | undefined }[]) =>
+  rows.reduce((n, r) => n + (r.state === 'released' ? 0 : r.images ?? 0), 0);
+
 /** reserve_sub_account_videos(): returns the reservation id, or throws when the monthly allowance would be exceeded. */
-export async function reserveVideos(c: Collections, tx: Tx, userId: string, subId: string, count: number) {
+export async function reserveVideos(c: Collections, tx: Tx, userId: string, subId: string, count: number, images = 0) {
   if (!Number.isInteger(count) || count < 0 || count > 5) throw new Error('Request zero to five videos');
+  if (!Number.isInteger(images) || images < 0 || images > 50) throw new Error('Request zero to fifty images');
   return tx(async (session) => {
     const account = await lockSubAccount(c, subId, session);
     if (!account || !(await subAccountAccess(c, userId, account, false, session))) throw new Error('Access denied');
     const month = monthKey(new Date(), account.timezone);
-    const rows = await c.reservations.find({ sub_account_id: subId, month_key: month }, { session, projection: { charged: 1 } }).toArray();
+    const rows = await c.reservations.find({ sub_account_id: subId, month_key: month }, { session, projection: { charged: 1, images: 1, state: 1 } }).toArray();
     const used = rows.reduce((n, r) => n + r.charged, 0);
+    const usedImages = imagesUsed(rows);
+    const imageLimit = account.monthly_image_limit ?? defaultPlan().monthly_image_limit;
+    if (images > 0 && usedImages + images > imageLimit) {
+      throw new Error(`Monthly image allowance reached: ${usedImages} of ${imageLimit} images used this month, so ${Math.max(0, imageLimit - usedImages)} more can be created.`);
+    }
     // Image-only requests (zero videos) stay allowed even when earlier usage exceeds the allowance.
     if (count > 0 && used + count > account.monthly_video_limit) throw new Error('Monthly video allowance exceeded');
     const id = crypto.randomUUID();
     await c.reservations.insertOne(
-      { id, sub_account_id: subId, user_id: userId, month_key: month, requested: count, charged: count, job_id: null, state: 'reserved', created_at: new Date() },
+      { id, sub_account_id: subId, user_id: userId, month_key: month, requested: count, charged: count, images, job_id: null, state: 'reserved', created_at: new Date() },
       { session },
     );
     return id;

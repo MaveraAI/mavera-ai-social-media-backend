@@ -46,7 +46,7 @@ function db(seed: Partial<Record<keyof Collections, Doc[]>> = {}) {
   } as unknown as Collections & Record<keyof Collections, { rows: Doc[] }>;
 }
 const member = (role: 'admin' | 'member', revoked_at: Date | null = null) => ({ sub_account_id: account.id, user_id: 'me', role, revoked_at });
-const expected = { id: account.id, agency_id: 'agency', client_id: 'assigned-brand', name: 'Assigned', timezone: 'Europe/London', monthly_video_limit: 3, created_at: account.created_at.toISOString() };
+const expected = { id: account.id, agency_id: 'agency', client_id: 'assigned-brand', name: 'Assigned', timezone: 'Europe/London', monthly_video_limit: 3, monthly_image_limit: 30, created_at: account.created_at.toISOString() };
 
 describe('server-side sub-account permissions', () => {
   it('an assigned member can read their brand', async () => {
@@ -89,6 +89,17 @@ describe('monthly video reservations', () => {
   });
   it('denies users without access', async () => {
     await expect(reserveVideos(db(), tx, 'me', account.id, 0)).rejects.toThrow('Access denied');
+  });
+  it('counts images against the monthly image allowance (30 by default)', async () => {
+    const month = monthKey(new Date(), 'Europe/London');
+    const images = (n: number, state = 'done') => [{ id: `i${n}`, sub_account_id: account.id, user_id: 'me', month_key: month, requested: 0, charged: 0, images: n, job_id: `job-i${n}`, state }];
+    const d = db({ subAccountMemberships: [member('member')], reservations: images(26) });
+    await expect(reserveVideos(d, tx, 'me', account.id, 0, 4)).resolves.toEqual(expect.any(String));
+    expect(d.reservations.rows.at(-1)).toMatchObject({ images: 4 });
+    await expect(reserveVideos(d, tx, 'me', account.id, 0, 1)).rejects.toThrow('Monthly image allowance reached: 30 of 30 images used this month, so 0 more can be created.');
+    // Released campaigns give their images back.
+    const freed = db({ subAccountMemberships: [member('member')], reservations: images(30, 'released') });
+    await expect(reserveVideos(freed, tx, 'me', account.id, 0, 30)).resolves.toEqual(expect.any(String));
   });
 });
 
