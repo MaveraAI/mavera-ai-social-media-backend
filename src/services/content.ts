@@ -9,15 +9,13 @@ import { smRequest as sm } from '@/lib/mavera/sm-api.server';
 import { brandSchema, clientIdSchema, jobIdFromPostId, jobSchema, publishSchema, reviseSchema, validate, versionSchema, type Brand, type GhlAccount, type Job, type Post, type Progress, type PublishResult } from '@/lib/mavera/sm-shared';
 import { monthKey } from '@/lib/mavera/tenant-shared';
 import { accountForClient, requireAgency, reserveVideos, subAccountAccess, visibleAccounts } from '@/lib/mavera/tenant.server';
-import { agencyConnected, encryptToken, locationToken } from '@/lib/ghl/tokens.server';
-import { ghlApp } from '@/lib/ghl/ghl.server';
-import { ensurePublishingToken } from '@/services/connections';
 
 const defaultVideoLimit = () => defaultPlan().monthly_video_limit;
 
+/** GHL tokens, sub-account and user IDs stay server-side; users never see them. */
 function safeBrand(brand: Brand): Brand {
-  const { ghl_token: _token, ...safe } = brand;
-  return safe;
+  const { ghl_token: _t, ghl_location_id: _l, ghl_user_id: _u, ...safe } = brand as Brand & Record<string, unknown>;
+  return safe as Brand;
 }
 async function jobForAccount(db: Collections, userId: string, jobId: string) {
   const result = await sm<{ job: Job | null; progress?: Progress; done: boolean; posts: Post[] }>(`sm/job?job_id=${encodeURIComponent(jobId)}`);
@@ -83,26 +81,13 @@ export async function saveBrand(ctx: AuthContext, input: unknown) {
     if (upstream.brands.length) throw new Error('This Brand ID already exists. Import existing brands or choose another name.');
   }
   if (data.timezone) { try { new Intl.DateTimeFormat('en', { timeZone: data.timezone }).format(); } catch { throw new Error('Choose a valid timezone'); } }
-  // A token the user typed is kept (encrypted) so Connect buttons work for brands without the agency GHL app.
-  const privateToken = data.ghl_token || null;
-  const agencyId = agency ?? existing?.agency_id;
-  if (!privateToken && data.ghl_location_id && agencyId && ghlApp() && await agencyConnected(db, agencyId)) {
-    // Agency-connected: n8n gets a fresh sub-account token, so nobody has to create or paste one.
-    const t = await locationToken(db, agencyId, data.ghl_location_id);
-    data.ghl_token = t.token;
-    if (!data.ghl_user_id && t.userId) data.ghl_user_id = t.userId;
-  }
+  // n8n assigns the GHL sub-account and user itself a few seconds after saving (ghl_status).
   const saved = (await sm<{ ok: boolean; brand: Brand }>('sm/brands', { method: 'POST', body: data })).brand;
-  const ghl = {
-    ...(data.ghl_location_id !== undefined ? { ghl_location_id: data.ghl_location_id || null } : {}),
-    ...(data.ghl_user_id !== undefined ? { ghl_user_id: data.ghl_user_id || null } : {}),
-    ...(privateToken ? { ghl_private_token_enc: encryptToken(privateToken) } : {}),
-  };
   if (agency) {
-    await db.subAccounts.insertOne({ id: crypto.randomUUID(), agency_id: agency, client_id: data.client_id, name: data.name, timezone: data.timezone || 'Europe/London', monthly_video_limit: defaultVideoLimit(), created_at: new Date(), ...ghl })
+    await db.subAccounts.insertOne({ id: crypto.randomUUID(), agency_id: agency, client_id: data.client_id, name: data.name, timezone: data.timezone || 'Europe/London', monthly_video_limit: defaultVideoLimit(), created_at: new Date() })
       .catch(() => { throw new Error('Brand saved but sub-account assignment needs administrator attention'); });
   } else {
-    await db.subAccounts.updateOne({ client_id: data.client_id }, { $set: { name: data.name, ...(data.timezone ? { timezone: data.timezone } : {}), ...ghl } })
+    await db.subAccounts.updateOne({ client_id: data.client_id }, { $set: { name: data.name, ...(data.timezone ? { timezone: data.timezone } : {}) } })
       .catch(() => { throw new Error('Could not update sub-account settings'); });
   }
   return safeBrand(saved);
@@ -205,7 +190,6 @@ export async function publishPosts(ctx: AuthContext, input: unknown) {
   const data = validate(publishSchema)(input);
   if (!data.job_id) throw new Error('Campaign ID required');
   const { result, account } = await jobForAccount(ctx.db, ctx.userId, data.job_id);
-  await ensurePublishingToken(ctx.db, account.id);
   if (data.post_ids?.some((postId) => !result.posts.some((p) => p.post_id === postId))) throw new Error('Post does not belong to this campaign');
   const body = data.post_ids ? { ...data, job_id: undefined } : data;
   return sm<PublishResult>('sm/publish', { method: 'POST', body });

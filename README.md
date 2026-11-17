@@ -53,15 +53,11 @@ All `/v1` routes need a signed-in user (session cookie). Changes must come from 
 | POST | `/v1/publish` | Approve and schedule posts in GHL |
 | POST | `/v1/posts/:postId/revise` | Edit (`{mode:"edit", instruction}`) or regenerate (`{mode:"regenerate"}`) a post; video changes use 1 video from the monthly allowance |
 | POST | `/v1/posts/:postId/version` | Switch a post to an earlier version (`{version_id}`); publishing uses it |
-| GET | `/v1/ghl` | GHL connection status (`app_configured`, `connected`) |
-| POST | `/v1/ghl/install` | Agency admin: GHL install page to connect GHL once |
-| GET | `/oauth/ghl/callback` | GHL returns here after the install |
-| GET | `/v1/ghl/locations` | Agency admin: GHL sub-accounts to link brands to |
-| GET | `/v1/brands/:clientId/connections` | Connected social accounts for a brand |
-| POST | `/v1/brands/:clientId/connections/start` | Platform login address for the Connect pop-up |
-| GET | `/v1/brands/:clientId/connections/:platform/:accountId/options` | Pages and profiles to pick after login |
-| POST | `/v1/brands/:clientId/connections/:platform/:accountId` | Connect the picked page or profile (`{option_id}`) |
-| DELETE | `/v1/brands/:clientId/connections/:id` | Disconnect a social account |
+| GET | `/v1/brands/:clientId/connect/start?platform=` | Platform login address for the Connect popup (n8n) |
+| GET | `/v1/brands/:clientId/connect/accounts?platform=&account_id=` | Pages and profiles from that login |
+| POST | `/v1/brands/:clientId/connect/attach` | Connect the picked pages (`{platform, account_id, accounts}`) |
+| POST | `/v1/brands/:clientId/connect/enabled` | Turn connected accounts on or off for posting (`{accounts:[{id, enabled}]}`) |
+| POST | `/v1/brands/:clientId/connect/retry` | Re-run n8n's brand setup after `ghl_status: "failed"` |
 | POST | `/api/public/v1/subaccounts/create` | Provisioning API (Bearer secret), see [docs](docs/API-SUBACCOUNT-PROVISIONING.md) |
 | GET | `/health` | Health and database check |
 
@@ -75,7 +71,6 @@ Errors are `{ "message": "..." }` with a matching status code.
    - `FRONTEND_URL=https://app.mavera.ai`
    - `BETTER_AUTH_URL=https://api.mavera.ai`
    - `BETTER_AUTH_SECRET`, `MONGODB_URI`, `MONGODB_DB`, `SM_API_SECRET`, `PROVISIONING_API_SECRET`, `DEFAULT_MONTHLY_VIDEO_LIMIT`, `RESEND_API_KEY`, `MAIL_FROM`
-   - `GHL_CLIENT_ID`, `GHL_CLIENT_SECRET` for one-click social connections ([setup](docs/SOCIAL-CONNECTIONS.md))
    - Railway sets `PORT` itself.
 4. **Settings → Region:** Europe West (close to the MongoDB cluster in Ireland).
 5. **Settings → Networking → Custom Domain:** `api.mavera.ai`. Add the CNAME Railway shows in Cloudflare DNS (proxy off, grey cloud, or SSL mode Full (strict) if proxied).

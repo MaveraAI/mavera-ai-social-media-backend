@@ -14,11 +14,6 @@ export type SubAccountDoc = {
   created_at: Date;
   /** Bumped inside transactions so concurrent writers on one sub-account conflict and retry, like SELECT ... FOR UPDATE. */
   lock_version?: number;
-  /** GHL sub-account (location) this brand posts through; cached from the brand profile. */
-  ghl_location_id?: string | null;
-  ghl_user_id?: string | null;
-  /** The brand's own Private Integration Token (encrypted), used when the agency has not connected GHL. */
-  ghl_private_token_enc?: string | null;
 };
 export type SubAccountMembershipDoc = { sub_account_id: string; user_id: string; role: 'admin' | 'member'; revoked_at: Date | null };
 export type InvitationDoc = {
@@ -55,19 +50,6 @@ export type AuthUserDoc = { _id: string; name: string; email: string; emailVerif
 export type AuthAccountDoc = { _id: string; accountId: string; providerId: string; userId: string; password?: string | null; createdAt: Date; updatedAt: Date };
 /** Stored results of provisioning requests, replayed for a repeated Idempotency-Key (expires after 24 hours). */
 export type IdempotencyDoc = { key: string; request_hash: string; state: 'pending' | 'done'; status?: number; body?: unknown; created_at: Date };
-/** The agency's GHL Marketplace app install (Company tokens, encrypted). One per agency. */
-export type GhlConnectionDoc = {
-  agency_id: string; company_id: string; user_id: string | null; scope: string;
-  access_token_enc: string; refresh_token_enc: string; expires_at: Date;
-  connected_by: string; connected_at: Date; updated_at: Date;
-};
-/** One-time `state` for the GHL install redirect (hash only; expires after 10 minutes). */
-export type GhlOAuthStateDoc = { state_hash: string; agency_id: string; user_id: string; expires_at: Date };
-/** Short-lived GHL sub-account tokens minted from the agency token, plus when n8n last received one. */
-export type GhlLocationTokenDoc = {
-  location_id: string; agency_id: string; user_id: string | null;
-  access_token_enc: string; expires_at: Date; pushed_to_brand_at?: Date | null; updated_at: Date;
-};
 /** Fixed-window request counters for the public API (expire automatically). */
 export type RateLimitDoc = { _id: string; count: number; expires_at: Date };
 
@@ -83,9 +65,6 @@ export type Collections = {
   authAccounts: Collection<AuthAccountDoc>;
   idempotency: Collection<IdempotencyDoc>;
   rateLimits: Collection<RateLimitDoc>;
-  ghlConnections: Collection<GhlConnectionDoc>;
-  ghlStates: Collection<GhlOAuthStateDoc>;
-  ghlLocationTokens: Collection<GhlLocationTokenDoc>;
 };
 
 type MongoState = { client: MongoClient; db: Db; indexes?: Promise<void> | undefined; connecting?: Promise<void> | undefined };
@@ -119,9 +98,6 @@ function collectionsFor(db: Db): Collections {
     authAccounts: db.collection<AuthAccountDoc>('account'),
     idempotency: db.collection<IdempotencyDoc>('api_idempotency'),
     rateLimits: db.collection<RateLimitDoc>('api_rate_limits'),
-    ghlConnections: db.collection<GhlConnectionDoc>('ghl_connections'),
-    ghlStates: db.collection<GhlOAuthStateDoc>('ghl_oauth_states'),
-    ghlLocationTokens: db.collection<GhlLocationTokenDoc>('ghl_location_tokens'),
   };
 }
 
@@ -146,10 +122,6 @@ async function ensureIndexes(c: Collections) {
     c.idempotency.createIndex({ key: 1 }, { unique: true }),
     c.idempotency.createIndex({ created_at: 1 }, { expireAfterSeconds: 24 * 60 * 60 }),
     c.rateLimits.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
-    c.ghlConnections.createIndex({ agency_id: 1 }, { unique: true }),
-    c.ghlStates.createIndex({ state_hash: 1 }, { unique: true }),
-    c.ghlStates.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
-    c.ghlLocationTokens.createIndex({ location_id: 1 }, { unique: true }),
   ]);
 }
 

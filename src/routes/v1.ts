@@ -35,23 +35,18 @@ v1.post('/brands', async (c) => c.json(await content.saveBrand(c.var.auth, await
 v1.post('/brands/import', async (c) => c.json(await content.importExistingBrands(c.var.auth)));
 v1.get('/brands/:clientId/ghl-accounts', async (c) => c.json(await content.loadGhlAccounts(c.var.auth, { client_id: c.req.param('clientId') })));
 
-// ---------- Social connections (GHL behind the scenes) ----------
-v1.get('/ghl', async (c) => c.json(await connections.agencyStatus(c.var.auth)));
-v1.post('/ghl/install', async (c) => c.json(await connections.agencyInstallUrl(c.var.auth)));
-v1.delete('/ghl', async (c) => c.json(await connections.disconnectAgency(c.var.auth)));
-v1.get('/ghl/locations', async (c) => c.json(await connections.agencyLocations(c.var.auth)));
-v1.get('/brands/:clientId/connections', async (c) => c.json(await connections.brandConnections(c.var.auth, c.req.param('clientId'))));
-// { token }: the brand's private integration token, checked with GHL (fallback when the agency app is not connected)
-v1.post('/brands/:clientId/connections/token', async (c) => c.json(await connections.saveConnectionToken(c.var.auth, c.req.param('clientId'), await readJson(c))));
-// { platform, reconnect? } -> { url } for the platform's login popup
-v1.post('/brands/:clientId/connections/start', async (c) => c.json(await connections.startConnection(c.var.auth, c.req.param('clientId'), await readJson(c))));
-// After the popup: pages/profiles to choose from
-v1.get('/brands/:clientId/connections/:platform/:accountId/options', async (c) =>
-  c.json(await connections.connectionOptions(c.var.auth, c.req.param('clientId'), { platform: c.req.param('platform'), account_id: c.req.param('accountId') })));
-// { option_id }
-v1.post('/brands/:clientId/connections/:platform/:accountId', async (c) =>
-  c.json(await connections.attachConnection(c.var.auth, c.req.param('clientId'), { ...obj(await readJson(c)), platform: c.req.param('platform'), account_id: c.req.param('accountId') })));
-v1.delete('/brands/:clientId/connections/:id', async (c) => c.json(await connections.removeConnection(c.var.auth, c.req.param('clientId'), { id: c.req.param('id') })));
+// ---------- Social connections (n8n runs GHL behind the scenes) ----------
+// ?platform= -> { url } for the platform's login popup
+v1.get('/brands/:clientId/connect/start', async (c) => c.json(await connections.connectStart(c.var.auth, c.req.param('clientId'), { platform: c.req.query('platform') })));
+// ?platform=&account_id= (from the popup's message) -> pages/profiles to pick
+v1.get('/brands/:clientId/connect/accounts', async (c) =>
+  c.json(await connections.connectAccounts(c.var.auth, c.req.param('clientId'), { platform: c.req.query('platform'), account_id: c.req.query('account_id') })));
+// { platform, account_id, accounts: [picked pages, unchanged] } -> { results, accounts }
+v1.post('/brands/:clientId/connect/attach', async (c) => c.json(await connections.connectAttach(c.var.auth, c.req.param('clientId'), await readJson(c))));
+// { accounts: [{ id, enabled }] } -> the brand's accounts
+v1.post('/brands/:clientId/connect/enabled', async (c) => c.json(await connections.setAccountsEnabled(c.var.auth, c.req.param('clientId'), await readJson(c))));
+// Re-run n8n's setup after ghl_status "failed"
+v1.post('/brands/:clientId/connect/retry', async (c) => c.json(await connections.retrySetup(c.var.auth, c.req.param('clientId'))));
 
 // ---------- Campaigns and publishing ----------
 v1.get('/jobs', async (c) => c.json(await content.listJobs(c.var.auth, { client_id: c.req.query('client_id') })));
