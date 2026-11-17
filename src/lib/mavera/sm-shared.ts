@@ -55,15 +55,14 @@ export const clientIdSchema = z.string().regex(/^[a-z0-9-]{2,50}$/, "Brand ID mu
 /** Brand field limits, shared by the form (counters, maxLength) and server validation. */
 export const BRAND_LIMITS = {
   name: 120, description: 1000, audience: 500, tone: 300, colours: 300, website: 300, rules: 1000,
-  language: 60, timezone: 60, ghl_location_id: 100, ghl_token: 500, ghl_user_id: 100,
+  language: 60, timezone: 60,
   logo_url: 500, music_url: 500,
 } as const;
 /** Field names as users see them in the forms. */
 export const FIELD_LABELS: Record<string, string> = {
   client_id: "Brand ID", name: "Brand name", description: "Description", audience: "Audience", tone: "Tone of voice",
   colours: "Brand colours", website: "Website", rules: "Rules (things to avoid)", platforms: "Platforms", language: "Language",
-  timezone: "Timezone", image_aspect_ratio: "Image shape", ghl_location_id: "Location ID", ghl_token: "Private integration token",
-  ghl_user_id: "User ID", ghl_accounts: "Connected social accounts", prompt: "Campaign brief", image_posts: "Images",
+  timezone: "Timezone", image_aspect_ratio: "Image shape", ghl_accounts: "Connected social accounts", prompt: "Campaign brief", image_posts: "Images",
   video_posts: "Videos", start_date: "Plan posts from", video_seconds: "Video length", schedule_at: "Post at",
   post_ids: "Posts", job_id: "Campaign", email: "Email", limit: "Monthly video allowance", role: "Role",
   token: "Invitation link", logo_url: "Logo URL", music_url: "Music URL", music_volume: "Music volume",
@@ -115,10 +114,8 @@ export const brandSchema = z.object({
   language: limited("language").optional(),
   timezone: limited("timezone").optional(),
   image_aspect_ratio: z.enum(SM_RATIOS, { error: "Choose a valid image shape" }).optional(),
-  ghl_location_id: limited("ghl_location_id").trim().optional(),
-  ghl_token: limited("ghl_token").trim().optional(),
-  ghl_user_id: limited("ghl_user_id").trim().optional(),
-  ghl_accounts: z.array(z.object({ id: z.string().max(200), platform: z.string().max(50), name: z.string().max(200).optional(), isExpired: z.boolean().optional(), enabled: z.boolean().optional() }).passthrough()).max(50).optional(),
+  // GHL sub-account, user and token are assigned by n8n when the brand is saved; the app never sends them.
+  ghl_accounts: z.array(z.object({ id: z.string().max(300), platform: z.string().max(50), name: z.string().max(200).optional(), isExpired: z.boolean().optional(), enabled: z.boolean().optional() }).passthrough()).max(50).optional(),
   // Video finishing (applied by the content service before a video is ready). Empty URLs mean "none".
   logo_url: publicUrl("logo_url").nullish(),
   music_url: publicUrl("music_url").nullish(),
@@ -126,34 +123,31 @@ export const brandSchema = z.object({
   subtitles: z.boolean({ error: "Subtitles must be on or off" }).nullish(),
   video_finish: z.boolean({ error: "Video finishing must be on or off" }).nullish(),
 });
-export type GhlAccount = { id: string; platform: string; name?: string; isExpired?: boolean; enabled?: boolean };
+/** A social account connected to a brand (only `enabled` ones receive posts). */
+export type GhlAccount = { id: string; platform: string; name?: string; avatar?: string | null; type?: string | null; isExpired?: boolean; enabled?: boolean };
 
 /** GHL uses its own names for two platforms. */
 const GHL_PLATFORM_ALIASES: Record<string, string> = { twitter: "x", google: "google_business" };
 export const toAppPlatform = (platform: string) => GHL_PLATFORM_ALIASES[platform] ?? platform;
 
-// ---------- Connecting social accounts (GHL Social Planner, run by our backend) ----------
-/** Platforms a user can connect from Mavera, in GHL's names (see toAppPlatform for ours). */
-export const CONNECT_PLATFORMS = ["facebook", "instagram", "linkedin", "google", "tiktok", "youtube", "pinterest", "threads"] as const;
+// ---------- Connecting social accounts (n8n runs GHL behind the scenes) ----------
+/** Platforms a brand can connect (the n8n connect API's names). */
+export const CONNECT_PLATFORMS = ["facebook", "instagram", "linkedin", "tiktok", "youtube", "google_business", "threads", "pinterest"] as const;
 export type ConnectPlatform = (typeof CONNECT_PLATFORMS)[number];
 export const connectPlatformSchema = z.enum(CONNECT_PLATFORMS, { error: "Choose a supported platform" });
-/** IDs GHL hands back from its popup (open-ended, so only the safe characters are allowed). */
-export const ghlIdSchema = z.string().regex(/^[A-Za-z0-9_.:-]{1,200}$/, "Invalid account");
-/** A social account connected to a brand. */
-export type SocialConnection = { id: string; platform: string; name: string; avatar?: string | null; kind?: string | null; expired: boolean };
-/** A page, profile or location the user can pick after logging in to a platform. */
-export type ConnectOption = { id: string; name: string; avatar?: string | null; kind?: string | null; detail?: string | null; connected?: boolean };
-/** How a brand reaches GHL: the agency's app install, the brand's own token, or not yet. */
-export type ConnectionsState = {
-  ready: boolean; source: "agency" | "token" | null; reason: string | null;
-  can_manage: boolean; accounts: SocialConnection[];
-  /** The brand has a GHL sub-account but Mavera has no token for it yet (paste it once in the panel). */
-  needs_token?: boolean;
-};
-export type GhlAgencyStatus = {
-  app_configured: boolean; connected: boolean; agency_admin: boolean;
-  company_id?: string | null; connected_at?: string | null;
-};
+/** The account ID GHL's login popup sends back (only safe characters are allowed). */
+export const ghlIdSchema = z.string().regex(/^[A-Za-z0-9_.:-]{1,300}$/, "Invalid account");
+/** "ready" = Connect can be used; "failed" = see ghl_error; empty = n8n is still setting the brand up. */
+export type GhlStatus = "ready" | "failed" | null;
+/** A page or profile offered after the platform login (send it back unchanged, including `raw`, to attach it). */
+export type ConnectPage = { origin_id: string; name: string; avatar?: string | null; type?: string | null; is_connected?: boolean; raw?: unknown };
+/** The attach result: one entry per picked page, plus the brand's connected accounts afterwards. */
+export type AttachResult = { results: { name: string; ok: boolean; error?: string | null }[]; accounts: GhlAccount[] };
+export const attachSchema = z.object({
+  platform: connectPlatformSchema,
+  account_id: ghlIdSchema,
+  accounts: z.array(z.object({ origin_id: z.string().max(300), name: z.string().max(300) }).passthrough()).min(1, "Pick at least one page or profile").max(25),
+});
 
 /** Which accounts will actually be posted to: ticked and not expired. */
 export function connectionStatus(accounts?: GhlAccount[] | null) {
@@ -179,7 +173,11 @@ export function postTargets(post: { type: "image" | "video"; platforms?: string[
   }
   return { go, skip };
 }
-export type Brand = Omit<z.infer<typeof brandSchema>, "ghl_accounts"> & { created_at?: string; updated_at?: string; has_ghl_token?: boolean; ghl_accounts?: GhlAccount[] };
+export type Brand = Omit<z.infer<typeof brandSchema>, "ghl_accounts"> & {
+  created_at?: string; updated_at?: string; ghl_accounts?: GhlAccount[];
+  /** Set by n8n after the brand is saved (read-only). */
+  ghl_status?: GhlStatus | string; ghl_error?: string | null;
+};
 
 /** Platforms the publish endpoint can be limited to (Pinterest isn't supported for publishing yet). */
 export const PUBLISH_PLATFORMS = ["instagram", "facebook", "tiktok", "linkedin", "youtube", "x", "google_business", "threads"] as const;
