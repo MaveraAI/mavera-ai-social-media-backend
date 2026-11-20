@@ -6,6 +6,7 @@ import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import bcrypt from 'bcryptjs';
 import { getMongo } from '@/lib/db/mongo.server';
 import { sendMail } from '@/lib/mail.server';
+import { onboardingViaN8n, sendOnboardingEmail } from '@/lib/onboarding-mail.server';
 import { confirmEmail, resetPasswordEmail, welcomeEmail, type WelcomeInfo } from '@/lib/email-template.server';
 import { cookieSameSite, frontendOrigins, primaryFrontendUrl } from '@/config';
 
@@ -47,7 +48,11 @@ export const auth = betterAuth({
     sendResetPassword: async ({ user, url }) => {
       const welcome = welcomeEmails.get(user.email);
       if (welcome) {
-        welcome.sent = await sendMail({ to: user.email, ...welcomeEmail(url, { name: user.name, ...welcome.info }) });
+        const mail = welcomeEmail(url, { name: user.name, ...welcome.info });
+        // Onboarding goes out through n8n (from maverick@mavera.ai) when configured, otherwise through Resend.
+        welcome.sent = onboardingViaN8n()
+          ? await sendOnboardingEmail({ to: user.email, subject: mail.subject, html: mail.html })
+          : await sendMail({ to: user.email, ...mail });
         return;
       }
       await sendMail({ to: user.email, ...resetPasswordEmail(url, user.name) });
