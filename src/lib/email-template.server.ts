@@ -16,7 +16,7 @@ const esc = (value: string) =>
 const logoUrl = () => process.env['EMAIL_LOGO_URL'] || `${primaryFrontendUrl()}/email/mavera-logo.png`;
 
 export type EmailCard = {
-  label: string; title: string; subtitle?: string; ticks?: string[];
+  label: string; title?: string; subtitle?: string; ticks?: string[];
   footerLabel?: string; footerLines?: string[];
 };
 export type EmailContent = {
@@ -49,7 +49,7 @@ function cardHtml(card: EmailCard) {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${VIOLET};border-left:4px solid ${VIOLET};border-radius:10px;">
       <tr><td style="padding:24px 28px;">
         <p style="margin:0 0 6px;font-size:12px;font-weight:bold;letter-spacing:2px;color:${GREY};text-transform:uppercase;">${esc(card.label)}</p>
-        <p style="margin:0 0 ${card.subtitle ? 4 : 18}px;font-size:20px;font-weight:bold;color:${INK};">${esc(card.title)}</p>
+        ${card.title ? `<p style="margin:0 0 ${card.subtitle ? 4 : 18}px;font-size:20px;font-weight:bold;color:${INK};">${esc(card.title)}</p>` : '<div style="height:8px;line-height:8px;font-size:0;">&nbsp;</div>'}
         ${card.subtitle ? `<p style="margin:0 0 18px;font-size:14px;color:${GREY};">${rich(card.subtitle)}</p>` : ''}
         ${ticks}${footer}
       </td></tr>
@@ -105,7 +105,7 @@ export function renderEmail(c: EmailContent): { subject: string; html: string; t
 
   const text = [
     c.title, '', plain(c.intro),
-    ...(c.card ? ['', `${c.card.label}: ${c.card.title}`, ...(c.card.subtitle ? [plain(c.card.subtitle)] : []), ...(c.card.ticks ?? []).map((t) => `- ${plain(t)}`),
+    ...(c.card ? ['', c.card.title ? `${c.card.label}: ${c.card.title}` : `${c.card.label}:`, ...(c.card.subtitle ? [plain(c.card.subtitle)] : []), ...(c.card.ticks ?? []).map((t) => `- ${plain(t)}`),
       ...(c.card.footerLabel ? [`${c.card.footerLabel}: ${(c.card.footerLines ?? []).map(plain).join(', ')}`] : [])] : []),
     ...(c.steps?.length ? ['', 'What happens next:', ...c.steps.map((s, i) => `${i + 1}. ${plain(s)}`)] : []),
     '', `${c.button.label}: ${c.button.url}`, '', plain(c.smallPrint), '', 'Mavera AI · https://mavera.ai',
@@ -127,14 +127,12 @@ export function welcomeEmail(url: string, info: WelcomeInfo = {}) {
     preheader: 'Your Mavera AI account is ready. Choose a password to sign in.',
     eyebrow: 'Your account is ready',
     title: `Welcome to Mavera AI${greeting(info.name)}`,
-    intro: info.brandName
-      ? `Your Mavera AI account has been created for **${info.brandName}**. Choose a password and you can start creating on-brand images and videos straight away.`
-      : 'Your Mavera AI account is ready. Choose a password and you can start creating on-brand images and videos straight away.',
-    ...(info.brandName ? { card: {
-      label: 'Your brand', title: info.brandName, subtitle: 'You are the brand administrator',
+    intro: 'Your Mavera AI account is ready. Choose a password and you can start creating on-brand images and videos straight away.',
+    card: {
+      label: 'What you get',
       ticks: ['On-brand images, videos and captions from a simple brief', 'Your own photos and PDFs as references', 'Scheduled posting to your connected social accounts'],
       ...(info.videos !== undefined && info.images !== undefined ? { footerLabel: 'Your allowances', footerLines: [`${info.videos} videos per month`, `${info.images} images per month`] } : {}),
-    } } : {}),
+    },
     steps: ['Choose your password using the button below.', 'Add your brand details: tone of voice, audience, colours and logo.', 'Connect your social accounts and create your first campaign.'],
     button: { label: 'Set my password', url },
     smallPrint: 'This link works for 1 hour. After that, use "Forgot password?" on the log in page to get a new one. If you didn\'t expect this email, you can ignore it.',

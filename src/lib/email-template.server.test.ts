@@ -4,12 +4,13 @@ import { confirmEmail, invitationEmail, renderEmail, resetPasswordEmail, welcome
 vi.stubEnv('FRONTEND_URL', 'https://social.mavera.ai');
 
 describe('branded emails', () => {
-  it('welcome email shows the brand, admin role, allowances and the set-password button', () => {
+  it('welcome email shows what they get, the allowances and the set-password button, but no brand', () => {
     const m = welcomeEmail('https://api.example/reset/abc?callbackURL=x', { name: 'Test User', brandName: 'API Test Brand', videos: 10, images: 30 });
     expect(m.subject).toBe('Welcome to Mavera AI: set your password');
     expect(m.html).toContain('Welcome to Mavera AI, Test');
-    expect(m.html).toContain('<strong>API Test Brand</strong>');
-    expect(m.html).toContain('You are the brand administrator');
+    expect(m.html).not.toContain('API Test Brand');
+    expect(m.html).not.toContain('Your brand');
+    expect(m.html).toContain('What you get');
     expect(m.html).toContain('10 videos per month');
     expect(m.html).toContain('30 images per month');
     expect(m.html).toContain('href="https://api.example/reset/abc?callbackURL=x"');
@@ -30,16 +31,17 @@ describe('branded emails', () => {
   });
 
   it('escapes names and brand names so nobody can inject HTML into an email', () => {
-    const m = welcomeEmail('https://x/"><script>', { name: '<img src=x onerror=alert(1)>', brandName: 'Evil <b>Brand</b>', videos: 1, images: 1 });
+    const m = welcomeEmail('https://x/"><script>', { name: '<img src=x onerror=alert(1)>', videos: 1, images: 1 });
     expect(m.html).not.toContain('<img src=x');
-    expect(m.html).not.toContain('<b>Brand</b>');
-    expect(m.html).toContain('Evil &lt;b&gt;Brand&lt;/b&gt;');
+    const invite = invitationEmail('https://x', 'Evil <b>Brand</b>', 'member', new Date());
+    expect(invite.html).not.toContain('<b>Brand</b>');
+    expect(invite.html).toContain('Evil &lt;b&gt;Brand&lt;/b&gt;');
     expect(m.html).toContain('href="https://x/&quot;&gt;&lt;script&gt;"');
   });
 
-  it('leaves the brand card out when there is no brand', () => {
+  it('works without a name or allowances', () => {
     const m = welcomeEmail('https://x');
-    expect(m.html).not.toContain('Your brand');
+    expect(m.html).not.toContain('Your allowances');
     expect(m.html).toContain('Welcome to Mavera AI</h1>');
     expect(renderEmail({ subject: 's', preheader: 'p', eyebrow: 'e', title: 't', intro: 'i', button: { label: 'b', url: 'https://x' }, smallPrint: 'sp' }).html).not.toContain('What happens next');
   });
