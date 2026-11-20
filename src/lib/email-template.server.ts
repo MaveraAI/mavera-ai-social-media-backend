@@ -123,11 +123,11 @@ export type WelcomeInfo = { name?: string | null; brandName?: string | null; vid
 /** Account created through the provisioning API: choose a password. */
 export function welcomeEmail(url: string, info: WelcomeInfo = {}) {
   return renderEmail({
-    subject: 'Welcome to Mavera AI: set your password',
-    preheader: 'Your Mavera AI account is ready. Choose a password to sign in.',
+    subject: 'Set up your Mavera Socials account',
+    preheader: 'Your Mavera Socials account is ready. Choose a password to sign in.',
     eyebrow: 'Your account is ready',
-    title: `Welcome to Mavera AI${greeting(info.name)}`,
-    intro: 'Your Mavera AI account is ready. Choose a password and you can start creating on-brand images and videos straight away.',
+    title: `Welcome to Mavera Socials${greeting(info.name)}`,
+    intro: 'Your Mavera Socials account is ready. Choose a password and you can start creating on-brand images and videos straight away.',
     card: {
       label: 'What you get',
       ticks: ['On-brand images, videos and captions from a simple brief', 'Your own photos and PDFs as references', 'Scheduled posting to your connected social accounts'],

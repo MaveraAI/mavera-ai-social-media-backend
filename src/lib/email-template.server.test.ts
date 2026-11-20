@@ -6,8 +6,8 @@ vi.stubEnv('FRONTEND_URL', 'https://social.mavera.ai');
 describe('branded emails', () => {
   it('welcome email shows what they get, the allowances and the set-password button, but no brand', () => {
     const m = welcomeEmail('https://api.example/reset/abc?callbackURL=x', { name: 'Test User', brandName: 'API Test Brand', videos: 10, images: 30 });
-    expect(m.subject).toBe('Welcome to Mavera AI: set your password');
-    expect(m.html).toContain('Welcome to Mavera AI, Test');
+    expect(m.subject).toBe('Set up your Mavera Socials account');
+    expect(m.html).toContain('Welcome to Mavera Socials, Test');
     expect(m.html).not.toContain('API Test Brand');
     expect(m.html).not.toContain('Your brand');
     expect(m.html).toContain('What you get');
@@ -42,7 +42,7 @@ describe('branded emails', () => {
   it('works without a name or allowances', () => {
     const m = welcomeEmail('https://x');
     expect(m.html).not.toContain('Your allowances');
-    expect(m.html).toContain('Welcome to Mavera AI</h1>');
+    expect(m.html).toContain('Welcome to Mavera Socials</h1>');
     expect(renderEmail({ subject: 's', preheader: 'p', eyebrow: 'e', title: 't', intro: 'i', button: { label: 'b', url: 'https://x' }, smallPrint: 'sp' }).html).not.toContain('What happens next');
   });
 });

@@ -108,7 +108,8 @@ In Postman: method **POST**, the URL above, **Authorization → Bearer Token** w
 | `PROVISIONING_RATE_LIMIT_PER_MINUTE` | No | Requests per minute per caller IP (default `20`). Applies before the token check. |
 | `BETTER_AUTH_URL` | Yes | This API's public address (e.g. `https://api.mavera.ai`), used in email links. |
 | `FRONTEND_URL` | Yes | The app's address (e.g. `https://app.mavera.ai`); the "set your password" link sends users back there. |
-| `RESEND_API_KEY`, `MAIL_FROM` | For emails | Without them the setup email is not sent (`password_setup_email_sent: false`). |
+| `ONBOARDING_EMAIL_WEBHOOK_URL` | Recommended | n8n webhook that sends the "Set up your Mavera Socials account" email from maverick@mavera.ai. Keep it private. When empty, the email goes through Resend. |
+| `RESEND_API_KEY`, `MAIL_FROM` | For emails | Resend sends the other emails (and the setup email when the n8n webhook is not set). Without them those emails are not sent (`password_setup_email_sent: false`). |
 
 Never commit these values. Set them in `.env` locally and in your hosting provider's environment settings.
 
