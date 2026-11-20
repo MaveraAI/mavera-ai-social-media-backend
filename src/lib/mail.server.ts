@@ -32,11 +32,3 @@ export async function sendMail(mail: Mail): Promise<boolean> {
     return false;
   }
 }
-
-export function linkEmail(intro: string, url: string, action: string): Pick<Mail, 'text' | 'html'> {
-  const safeUrl = url.replace(/"/g, '%22');
-  return {
-    text: `${intro}\n\n${action}: ${url}\n\nIf you didn't expect this email, you can ignore it.`,
-    html: `<p>${intro}</p><p><a href="${safeUrl}">${action}</a></p><p>If you didn't expect this email, you can ignore it.</p>`,
-  };
-}

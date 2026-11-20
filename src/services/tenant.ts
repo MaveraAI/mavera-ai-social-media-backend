@@ -3,7 +3,8 @@
 import { z } from 'zod';
 import type { AuthContext } from '@/http';
 import { withTransaction } from '@/lib/db/mongo.server';
-import { sendMail, linkEmail } from '@/lib/mail.server';
+import { sendMail } from '@/lib/mail.server';
+import { invitationEmail } from '@/lib/email-template.server';
 import { invitationState } from '@/lib/mavera/invitation-state';
 import { validate } from '@/lib/mavera/sm-shared';
 import { monthKey, remaining, type MonthlyUsage } from '@/lib/mavera/tenant-shared';
@@ -94,15 +95,13 @@ export async function inviteMember(ctx: AuthContext, input: unknown) {
   const account = await accountById(ctx.db, ctx.userId, data.account_id, true);
   const token = crypto.randomUUID() + crypto.randomUUID();
   const now = new Date();
+  const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   await ctx.db.invitations.insertOne({
     id: crypto.randomUUID(), sub_account_id: account.id, email: data.email.toLowerCase(), role: data.role, token_hash: await sha256(token),
-    invited_by: ctx.userId, expires_at: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000), accepted_at: null, revoked_at: null, created_at: now,
+    invited_by: ctx.userId, expires_at: expiresAt, accepted_at: null, revoked_at: null, created_at: now,
   }).catch(() => { throw new Error('Could not create invitation'); });
   const url = `${new URL(data.origin).origin}/invite?token=${encodeURIComponent(token)}`;
-  const emailed = await sendMail({
-    to: data.email, subject: `You're invited to ${account.name} on Mavera AI`,
-    ...linkEmail(`You've been invited to join ${account.name} on Mavera AI. Sign in or create an account with this email address to accept.`, url, 'Accept invitation'),
-  });
+  const emailed = await sendMail({ to: data.email, ...invitationEmail(url, account.name, data.role, expiresAt) });
   return { url, emailed };
 }
 

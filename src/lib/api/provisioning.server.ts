@@ -100,7 +100,7 @@ export type ProvisionDeps = {
   hashPassword: (password: string) => Promise<string>;
   plan: Plan;
   agencyId: string | undefined;
-  sendPasswordSetup: (email: string) => Promise<boolean>;
+  sendPasswordSetup: (email: string, info: { name: string; brandName: string; videos: number; images: number }) => Promise<boolean>;
 };
 
 /** PROVISIONING_AGENCY_ID, or the only agency when there is exactly one. */
@@ -161,7 +161,9 @@ export async function provisionSubAccount(deps: ProvisionDeps, input: ProvisionI
     throw new ApiError(502, 'Could not create the brand profile. Nothing was created; please retry.');
   }
 
-  const emailed = await deps.sendPasswordSetup(email).catch(() => false);
+  const emailed = await deps.sendPasswordSetup(email, {
+    name: input.user_name, brandName: input.brand_name, videos: deps.plan.monthly_video_limit, images: deps.plan.monthly_image_limit,
+  }).catch(() => false);
   return {
     status: 201,
     body: {
