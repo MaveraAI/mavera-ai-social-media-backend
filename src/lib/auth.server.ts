@@ -5,15 +5,16 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import bcrypt from 'bcryptjs';
 import { getMongo } from '@/lib/db/mongo.server';
-import { linkEmail, sendMail } from '@/lib/mail.server';
+import { sendMail } from '@/lib/mail.server';
+import { confirmEmail, resetPasswordEmail, welcomeEmail, type WelcomeInfo } from '@/lib/email-template.server';
 import { cookieSameSite, frontendOrigins, primaryFrontendUrl } from '@/config';
 
 const { client, db } = getMongo();
 // BETTER_AUTH_URL is this API's public address (e.g. https://api.mavera.ai); the frontend lives elsewhere.
 const secureCookies = (process.env['BETTER_AUTH_URL'] ?? '').startsWith('https://');
 
-/** Emails currently being sent a welcome "set your password" link instead of a reset notice, with whether it was sent. */
-const welcomeEmails = new Map<string, boolean | undefined>();
+/** Emails currently being sent a welcome "set your password" link instead of a reset notice: who they are, and whether it was sent. */
+const welcomeEmails = new Map<string, { info: WelcomeInfo; sent?: boolean }>();
 
 export const auth = betterAuth({
   appName: 'Mavera AI',
@@ -44,15 +45,12 @@ export const auth = betterAuth({
         hash.startsWith('$2') ? bcrypt.compare(password, hash) : verifyPassword({ hash, password }),
     },
     sendResetPassword: async ({ user, url }) => {
-      if (welcomeEmails.has(user.email)) {
-        const sent = await sendMail({
-          to: user.email, subject: 'Welcome to Mavera AI: set your password',
-          ...linkEmail('Your Mavera AI account is ready. Choose a password to sign in. The link works for 1 hour; after that, use "Forgot password?" on the log in page to get a new one.', url, 'Set my password'),
-        });
-        welcomeEmails.set(user.email, sent);
+      const welcome = welcomeEmails.get(user.email);
+      if (welcome) {
+        welcome.sent = await sendMail({ to: user.email, ...welcomeEmail(url, { name: user.name, ...welcome.info }) });
         return;
       }
-      await sendMail({ to: user.email, subject: 'Reset your Mavera AI password', ...linkEmail('Someone asked to reset the password for your Mavera AI account.', url, 'Choose a new password') });
+      await sendMail({ to: user.email, ...resetPasswordEmail(url, user.name) });
     },
   },
   emailVerification: {
@@ -61,17 +59,18 @@ export const auth = betterAuth({
     sendOnSignIn: true,
     autoSignInAfterVerification: true,
     sendVerificationEmail: async ({ user, url }) => {
-      await sendMail({ to: user.email, subject: 'Confirm your Mavera AI account', ...linkEmail('Welcome to Mavera AI. Please confirm your email address.', url, 'Confirm my email') });
+      await sendMail({ to: user.email, ...confirmEmail(url, user.name) });
     },
   },
 });
 
 /** Emails a newly provisioned user a secure link to choose their password. Returns whether the email was sent. */
-export async function sendPasswordSetupEmail(email: string): Promise<boolean> {
-  welcomeEmails.set(email, undefined);
+export async function sendPasswordSetupEmail(email: string, info: WelcomeInfo = {}): Promise<boolean> {
+  const entry: { info: WelcomeInfo; sent?: boolean } = { info };
+  welcomeEmails.set(email, entry);
   try {
     await auth.api.requestPasswordReset({ body: { email, redirectTo: `${primaryFrontendUrl()}/reset-password` } });
-    return welcomeEmails.get(email) === true;
+    return entry.sent === true;
   } catch (error) {
     console.error('[auth] Could not send the password setup email', error instanceof Error ? error.message : error);
     return false;
