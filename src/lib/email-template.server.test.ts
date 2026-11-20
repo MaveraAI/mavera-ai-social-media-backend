@@ -14,7 +14,7 @@ describe('branded emails', () => {
     expect(m.html).toContain('10 videos per month');
     expect(m.html).toContain('30 images per month');
     expect(m.html).toContain('href="https://api.example/reset/abc?callbackURL=x"');
-    expect(m.html).toContain('https://social.mavera.ai/email/mavera-logo.png');
+    expect(m.html).toContain('src="https://mavera.ai/logo.png"');
     expect(m.html).toContain('activate the supercharged version of you.');
     expect(m.text).toContain('Set my password: https://api.example/reset/abc?callbackURL=x');
   });

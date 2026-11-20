@@ -1,7 +1,6 @@
 // Branded Mavera AI emails: logo, violet rule, heading, an optional card, numbered steps, one button and a
 // black footer. Built with tables and inline styles so they look right in Gmail, Outlook and Apple Mail.
 // Every value from users (names, brand names) is escaped before it goes into the HTML.
-import { primaryFrontendUrl } from '@/config';
 
 const VIOLET = '#7B2DE8';
 const INK = '#0e0c12';
@@ -12,8 +11,8 @@ const FONT = 'Arial,Helvetica,sans-serif';
 const esc = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-/** The logo lives on the website at a fixed address (EMAIL_LOGO_URL overrides it). */
-const logoUrl = () => process.env['EMAIL_LOGO_URL'] || `${primaryFrontendUrl()}/email/mavera-logo.png`;
+/** Mavera's public logo on mavera.ai (EMAIL_LOGO_URL overrides it). */
+const logoUrl = () => process.env['EMAIL_LOGO_URL'] || 'https://mavera.ai/logo.png';
 
 export type EmailCard = {
   label: string; title?: string; subtitle?: string; ticks?: string[];
