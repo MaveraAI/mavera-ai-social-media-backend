@@ -77,13 +77,13 @@ describe('sub-account provisioning', () => {
   it('creates the user, login, sub-account with the default plan, membership and brand profile', async () => {
     const d = db();
     const sm = vi.fn(async (path: string) => (path.startsWith('sm/brands?') ? { brands: [] } : { ok: true })) as unknown as ProvisionDeps['sm'];
-    const result = await provisionSubAccount(deps(d, sm), input);
+    const result = await provisionSubAccount(deps(d, sm), input, 'mavera-tenant-142b');
     expect(result.status).toBe(201);
     const data = result.body['data'] as Record<string, unknown>;
     expect(data).toMatchObject({ client_id: 'john-s-clothing-brand', brand_name: "John's Clothing Brand", plan: 'default', monthly_video_limit: 10, monthly_image_limit: 30, password_setup_email_sent: true });
-    expect(d.users.rows[0]).toMatchObject({ _id: data['user_id'], email: 'john@example.com', name: 'John Doe', emailVerified: true });
+    expect(d.users.rows[0]).toMatchObject({ _id: data['user_id'], email: 'john@example.com', name: 'John Doe', emailVerified: true, password_setup_pending: true });
     expect(d.authAccounts.rows[0]).toMatchObject({ userId: data['user_id'], providerId: 'credential' });
-    expect(d.subAccounts.rows[0]).toMatchObject({ id: data['account_id'], agency_id: 'agency-1', monthly_video_limit: 10, timezone: 'Europe/London' });
+    expect(d.subAccounts.rows[0]).toMatchObject({ id: data['account_id'], agency_id: 'agency-1', monthly_video_limit: 10, timezone: 'Europe/London', idempotency_key: 'mavera-tenant-142b' });
     expect(d.subAccountMemberships.rows[0]).toMatchObject({ user_id: data['user_id'], role: 'admin', revoked_at: null });
     expect(sm).toHaveBeenLastCalledWith('sm/brands', { method: 'POST', body: expect.objectContaining({ client_id: 'john-s-clothing-brand', name: "John's Clothing Brand", platforms: ['instagram', 'facebook'] }) });
   });
