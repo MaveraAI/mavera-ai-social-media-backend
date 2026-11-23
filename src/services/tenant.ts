@@ -76,10 +76,15 @@ export async function accountPeople(ctx: AuthContext, input: unknown) {
   ]).catch(() => { throw new Error('Could not load members'); });
   const users = await db.users.find({ _id: { $in: rows.map((r) => r.user_id) } }, { projection: { email: 1 } }).toArray();
   const emails = new Map(users.map((u) => [u._id, u.email]));
-  const members = rows.map((r) => ({
-    user_id: r.user_id, role: r.role, revoked_at: iso(r.revoked_at), email: emails.get(r.user_id) ?? 'Unavailable',
-    protected: r.user_id === userId || agencyMembers.some((m) => m.user_id === r.user_id),
-  }));
+  // A person who deleted their login has no user record any more (older deletions weren't marked).
+  const members = rows.map((r) => {
+    const deleted = !!r.account_deleted_at || !emails.has(r.user_id);
+    return {
+      user_id: r.user_id, role: r.role, revoked_at: iso(r.revoked_at), email: emails.get(r.user_id) ?? r.former_email ?? 'Email not available',
+      account_deleted: deleted, account_deleted_at: iso(r.account_deleted_at),
+      protected: deleted || r.user_id === userId || agencyMembers.some((m) => m.user_id === r.user_id),
+    };
+  });
   return {
     members,
     invitations: invitations.map((i) => ({ id: i.id, email: i.email, role: i.role, expires_at: iso(i.expires_at)!, accepted_at: iso(i.accepted_at), revoked_at: iso(i.revoked_at) })),

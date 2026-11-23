@@ -127,6 +127,9 @@ export async function changeMemberAccess(c: Collections, tx: Tx, userId: string,
         );
       }
     } else if (action === 'restore') {
+      if (member.account_deleted_at || !(await c.users.findOne({ _id: target }, { session }))) {
+        throw new Error('This person deleted their account. Invite them again if they come back.');
+      }
       await c.subAccountMemberships.updateOne(key, { $set: { revoked_at: null } }, { session });
     } else if (member.revoked_at === null) {
       await c.subAccountMemberships.updateOne(key, { $set: { role: action } }, { session });
@@ -168,11 +171,13 @@ const listNames = (names: string[]) => (names.length < 2 ? names.join('') : `${n
 
 /**
  * Account deletion: in one transaction that locks every sub-account the user belongs to,
- * refuse when they are the only one left who can run a brand (no other brand admin and no
- * agency admin) or the only admin of an agency; otherwise retire all their access.
- * Memberships are kept with a revoked timestamp; their unanswered invitations are withdrawn.
+ * refuse when they are a brand's only admin while other people still use it (agency admins
+ * don't count: the brand's own team needs an admin), or the only admin of an agency.
+ * Otherwise retire all their access. Memberships are kept, revoked and marked as a deleted
+ * account (with the email, so the team can see who left); unanswered invitations they sent are withdrawn.
  */
-export async function leaveAllAccounts(c: Collections, tx: Tx, userId: string) {
+export async function leaveAllAccounts(c: Collections, tx: Tx, user: { id: string; email: string }) {
+  const userId = user.id;
   return tx(async (session) => {
     const agencyRows = await c.agencyMemberships.find({ user_id: userId }, { session }).toArray();
     for (const row of agencyRows) {
@@ -185,15 +190,15 @@ export async function leaveAllAccounts(c: Collections, tx: Tx, userId: string) {
     for (const row of [...rows].sort((a, b) => a.sub_account_id.localeCompare(b.sub_account_id))) {
       const account = await lockSubAccount(c, row.sub_account_id, session);
       if (!account || row.role !== 'admin') continue;
-      const otherAdmins = await c.subAccountMemberships.countDocuments({ sub_account_id: account.id, user_id: { $ne: userId }, role: 'admin', revoked_at: null }, { session });
-      const agencyAdmins = await c.agencyMemberships.countDocuments({ agency_id: account.agency_id, user_id: { $ne: userId } }, { session });
-      if (otherAdmins + agencyAdmins === 0) alone.push(account.name);
+      const others = await c.subAccountMemberships.find({ sub_account_id: account.id, user_id: { $ne: userId }, revoked_at: null }, { session }).toArray();
+      if (others.length > 0 && !others.some((o) => o.role === 'admin')) alone.push(account.name);
     }
     if (alone.length) {
       throw new AccountDeletionBlocked(`You're the only administrator of ${listNames(alone)}. Make someone else an administrator in Team first, then delete your account.`);
     }
     const now = new Date();
     await c.subAccountMemberships.updateMany({ user_id: userId, revoked_at: null }, { $set: { revoked_at: now } }, { session });
+    await c.subAccountMemberships.updateMany({ user_id: userId }, { $set: { account_deleted_at: now, former_email: user.email } }, { session });
     await c.agencyMemberships.deleteMany({ user_id: userId }, { session });
     await c.invitations.updateMany({ invited_by: userId, accepted_at: null, revoked_at: null }, { $set: { revoked_at: now } }, { session });
   });

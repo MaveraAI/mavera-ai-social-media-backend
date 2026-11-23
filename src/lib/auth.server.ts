@@ -73,7 +73,7 @@ export const auth = betterAuth({
       enabled: true,
       beforeDelete: async (user) => {
         try {
-          await leaveAllAccounts(await collections(), withTransaction, user.id);
+          await leaveAllAccounts(await collections(), withTransaction, { id: user.id, email: user.email });
         } catch (error) {
           if (error instanceof AccountDeletionBlocked) throw new APIError('BAD_REQUEST', { message: error.message });
           console.error('[auth] Account deletion failed', error instanceof Error ? error.message : error);
