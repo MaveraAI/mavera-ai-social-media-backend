@@ -8,6 +8,7 @@ import { ensureConnected } from '@/lib/db/mongo.server';
 import { frontendOrigins } from '@/config';
 import { provisioning } from '@/routes/provisioning';
 import { v1 } from '@/routes/v1';
+import { welcome } from '@/routes/welcome';
 
 export const app = new Hono();
 
@@ -37,6 +38,8 @@ app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
 
 app.route('/v1', v1);
 app.route('/api/public/v1', provisioning);
+// Mavera's post-payment redirect: sends the customer to set their password or to log in.
+app.route('/mavera', welcome);
 
 app.notFound((c) => c.json({ message: 'Not found' }, 404));
 app.onError((error, c) => {

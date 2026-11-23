@@ -16,6 +16,8 @@ export type SubAccountDoc = {
   created_at: Date;
   /** Bumped inside transactions so concurrent writers on one sub-account conflict and retry, like SELECT ... FOR UPDATE. */
   lock_version?: number;
+  /** Idempotency-Key of the provisioning request that created it (e.g. mavera-tenant-<id>), used by /mavera/welcome. */
+  idempotency_key?: string | null;
 };
 export type SubAccountMembershipDoc = {
   sub_account_id: string; user_id: string; role: 'admin' | 'member'; revoked_at: Date | null;
@@ -57,11 +59,15 @@ export type AuthUserDoc = {
   _id: string; name: string; email: string; emailVerified: boolean; image?: string | null; createdAt: Date; updatedAt: Date;
   /** When the user finished or skipped the welcome tour (so it starts by itself only once, on any device). */
   tour_completed_at?: Date | null;
+  /** True from provisioning until the user chooses their own password (cleared on password reset). */
+  password_setup_pending?: boolean;
 };
 /** Better Auth's `account` collection; email/password logins use providerId "credential". */
 export type AuthAccountDoc = { _id: string; accountId: string; providerId: string; userId: string; password?: string | null; createdAt: Date; updatedAt: Date };
 /** Stored results of provisioning requests, replayed for a repeated Idempotency-Key (expires after 24 hours). */
 export type IdempotencyDoc = { key: string; request_hash: string; state: 'pending' | 'done'; status?: number; body?: unknown; created_at: Date };
+/** One-use redirect tokens (by jti) already accepted; each row expires with its token. */
+export type UsedTokenDoc = { _id: string; expires_at: Date };
 /** Fixed-window request counters for the public API (expire automatically). */
 export type RateLimitDoc = { _id: string; count: number; expires_at: Date };
 
@@ -77,6 +83,7 @@ export type Collections = {
   authAccounts: Collection<AuthAccountDoc>;
   idempotency: Collection<IdempotencyDoc>;
   rateLimits: Collection<RateLimitDoc>;
+  usedTokens: Collection<UsedTokenDoc>;
 };
 
 type MongoState = { client: MongoClient; db: Db; indexes?: Promise<void> | undefined; connecting?: Promise<void> | undefined };
@@ -110,6 +117,7 @@ function collectionsFor(db: Db): Collections {
     authAccounts: db.collection<AuthAccountDoc>('account'),
     idempotency: db.collection<IdempotencyDoc>('api_idempotency'),
     rateLimits: db.collection<RateLimitDoc>('api_rate_limits'),
+    usedTokens: db.collection<UsedTokenDoc>('redirect_token_uses'),
   };
 }
 
@@ -134,6 +142,8 @@ async function ensureIndexes(c: Collections) {
     c.idempotency.createIndex({ key: 1 }, { unique: true }),
     c.idempotency.createIndex({ created_at: 1 }, { expireAfterSeconds: 24 * 60 * 60 }),
     c.rateLimits.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
+    c.usedTokens.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
+    c.subAccounts.createIndex({ idempotency_key: 1 }, { partialFilterExpression: { idempotency_key: { $type: 'string' } } }),
   ]);
 }
 

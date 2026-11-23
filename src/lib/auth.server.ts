@@ -18,6 +18,8 @@ const secureCookies = (process.env['BETTER_AUTH_URL'] ?? '').startsWith('https:/
 
 /** Emails currently being sent a welcome "set your password" link instead of a reset notice: who they are, and whether it was sent. */
 const welcomeEmails = new Map<string, { info: WelcomeInfo; sent?: boolean }>();
+/** Emails whose set-password link is being created for a redirect (/mavera/welcome) instead of being emailed. */
+const linkCaptures = new Map<string, { url?: string }>();
 
 export const auth = betterAuth({
   appName: 'Mavera AI',
@@ -41,6 +43,11 @@ export const auth = betterAuth({
     minPasswordLength: 6,
     maxPasswordLength: 128,
     revokeSessionsOnPasswordReset: true,
+    // The user has chosen their own password, so /mavera/welcome sends them to log in from now on.
+    onPasswordReset: async ({ user }) => {
+      await (await collections()).users.updateOne({ _id: user.id }, { $set: { password_setup_pending: false } })
+        .catch((error: unknown) => console.error('[auth] Could not record the password setup', error instanceof Error ? error.message : error));
+    },
     password: {
       hash: hashPassword,
       // Imported Supabase users have bcrypt hashes ($2a$/$2b$); new ones use Better Auth's scrypt.
@@ -48,6 +55,8 @@ export const auth = betterAuth({
         hash.startsWith('$2') ? bcrypt.compare(password, hash) : verifyPassword({ hash, password }),
     },
     sendResetPassword: async ({ user, url }) => {
+      const capture = linkCaptures.get(user.email);
+      if (capture) { capture.url = url; return; }
       const welcome = welcomeEmails.get(user.email);
       if (welcome) {
         const mail = welcomeEmail(url, { name: user.name, ...welcome.info });
@@ -115,5 +124,23 @@ export async function sendPasswordSetupEmail(email: string, info: WelcomeInfo = 
     return false;
   } finally {
     welcomeEmails.delete(email);
+  }
+}
+
+/**
+ * A fresh set-password link for an existing user, made exactly like the onboarding email's
+ * link (Better Auth's reset token, 1 hour, single use) but returned instead of emailed.
+ */
+export async function createPasswordSetupLink(email: string): Promise<string | null> {
+  const entry: { url?: string } = {};
+  linkCaptures.set(email, entry);
+  try {
+    await auth.api.requestPasswordReset({ body: { email, redirectTo: `${primaryFrontendUrl()}/reset-password` } });
+    return entry.url ?? null;
+  } catch (error) {
+    console.error('[auth] Could not create a password setup link', error instanceof Error ? error.message : error);
+    return null;
+  } finally {
+    linkCaptures.delete(email);
   }
 }

@@ -53,11 +53,12 @@ export async function handleCreate(request: Request): Promise<Response> {
     email = input.email;
 
     // 4. Create (once per Idempotency-Key).
-    const result = await p.withIdempotency(db, request.headers.get('idempotency-key'), p.requestHash(input), () =>
+    const idempotencyKey = request.headers.get('idempotency-key');
+    const result = await p.withIdempotency(db, idempotencyKey, p.requestHash(input), () =>
       p.provisionSubAccount({
         db, tx: withTransaction, sm: smRequest, hashPassword, plan: defaultPlan(),
         agencyId: process.env['PROVISIONING_AGENCY_ID'] || undefined, sendPasswordSetup: sendPasswordSetupEmail,
-      }, input));
+      }, input, idempotencyKey));
 
     const data = result.body['data'] as { user_id?: string; account_id?: string } | undefined;
     console.info('[provisioning] Sub-account created', { email: p.maskEmail(email), userId: data?.user_id, accountId: data?.account_id, replayed: !!result.replayed, durationMs: Date.now() - started });
