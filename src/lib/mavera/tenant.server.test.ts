@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Collections } from '@/lib/db/mongo.server';
 import { monthKey } from './tenant-shared';
-import { AccountDeletionBlocked, accountForClient, acceptInvitationFor, changeMemberAccess, leaveAllAccounts, requireAgency, reserveVideos, visibleAccounts } from './tenant.server';
+import { AccountDeletionBlocked, accountForClient, hasPendingInvitation, acceptInvitationFor, changeMemberAccess, leaveAllAccounts, requireAgency, reserveVideos, visibleAccounts } from './tenant.server';
 
 // Minimal in-memory stand-in for the MongoDB collections used by tenant.server.
 type Doc = Record<string, any>;
@@ -11,6 +11,7 @@ function matches(doc: Doc, filter: Doc): boolean {
     const actual = doc[key];
     if (expected && typeof expected === 'object' && !(expected instanceof Date) && '$in' in expected) return (expected.$in as unknown[]).includes(actual);
     if (expected && typeof expected === 'object' && !(expected instanceof Date) && '$ne' in expected) return actual !== expected.$ne;
+    if (expected && typeof expected === 'object' && !(expected instanceof Date) && '$gt' in expected) return actual > expected.$gt;
     if (expected === null) return actual === null || actual === undefined;
     return actual === expected;
   });
@@ -184,5 +185,14 @@ describe('deleting your own account', () => {
   it('a deleted account cannot be given access again', async () => {
     const d = db({ subAccountMemberships: [member('admin'), { ...other('member', new Date()), account_deleted_at: new Date() }], users: [] });
     await expect(changeMemberAccess(d, tx, 'me', account.id, 'them', 'restore')).rejects.toThrow('deleted their account');
+  });
+});
+
+describe('invitation-only sign-up', () => {
+  const inv = (email: string, extra: Doc = {}) => ({ id: email, email, accepted_at: null, revoked_at: null, expires_at: new Date(Date.now() + 60_000), ...extra });
+  it('lets only an email with a live invitation create a login', async () => {
+    const d = db({ invitations: [inv('new@team.com'), inv('used@team.com', { accepted_at: new Date() }), inv('pulled@team.com', { revoked_at: new Date() }), inv('late@team.com', { expires_at: new Date(Date.now() - 1000) })] });
+    await expect(hasPendingInvitation(d, ' New@Team.com ')).resolves.toBe(true);
+    for (const email of ['stranger@x.com', 'used@team.com', 'pulled@team.com', 'late@team.com']) await expect(hasPendingInvitation(d, email)).resolves.toBe(false);
   });
 });

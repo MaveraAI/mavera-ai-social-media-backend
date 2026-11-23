@@ -6,7 +6,7 @@ import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import bcrypt from 'bcryptjs';
 import { collections, getMongo, withTransaction } from '@/lib/db/mongo.server';
-import { AccountDeletionBlocked, leaveAllAccounts } from '@/lib/mavera/tenant.server';
+import { AccountDeletionBlocked, hasPendingInvitation, leaveAllAccounts } from '@/lib/mavera/tenant.server';
 import { sendMail } from '@/lib/mail.server';
 import { onboardingViaN8n, sendOnboardingEmail } from '@/lib/onboarding-mail.server';
 import { accountDeletedEmail, confirmEmail, resetPasswordEmail, welcomeEmail, type WelcomeInfo } from '@/lib/email-template.server';
@@ -60,9 +60,16 @@ export const auth = betterAuth({
       await sendMail({ to: user.email, ...resetPasswordEmail(url, user.name) });
     },
   },
+  // Sign-up is invitation-only (accounts are created through the provisioning API).
   // "Delete my account": always needs the current password, and never leaves a brand without an administrator.
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === '/sign-up/email') {
+        const email = typeof ctx.body?.email === 'string' ? ctx.body.email : '';
+        if (!email || !(await hasPendingInvitation(await collections(), email))) {
+          throw new APIError('BAD_REQUEST', { message: 'Accounts are set up by Mavera. If you were invited, use the email address the invitation was sent to.', code: 'SIGN_UP_INVITE_ONLY' });
+        }
+      }
       if (ctx.path === '/delete-user' && (typeof ctx.body?.password !== 'string' || !ctx.body.password || ctx.body.token)) {
         throw new APIError('BAD_REQUEST', { message: 'Enter your password to delete your account' });
       }
