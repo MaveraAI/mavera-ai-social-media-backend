@@ -203,3 +203,8 @@ export async function leaveAllAccounts(c: Collections, tx: Tx, user: { id: strin
     await c.invitations.updateMany({ invited_by: userId, accepted_at: null, revoked_at: null }, { $set: { revoked_at: now } }, { session });
   });
 }
+
+/** Accounts come from the provisioning API; the only self sign-up allowed is for an email with a live invitation. */
+export async function hasPendingInvitation(c: Collections, email: string) {
+  return !!(await c.invitations.findOne({ email: email.trim().toLowerCase(), accepted_at: null, revoked_at: null, expires_at: { $gt: new Date() } }));
+}
