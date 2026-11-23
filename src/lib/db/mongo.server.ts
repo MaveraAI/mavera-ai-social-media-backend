@@ -17,7 +17,11 @@ export type SubAccountDoc = {
   /** Bumped inside transactions so concurrent writers on one sub-account conflict and retry, like SELECT ... FOR UPDATE. */
   lock_version?: number;
 };
-export type SubAccountMembershipDoc = { sub_account_id: string; user_id: string; role: 'admin' | 'member'; revoked_at: Date | null };
+export type SubAccountMembershipDoc = {
+  sub_account_id: string; user_id: string; role: 'admin' | 'member'; revoked_at: Date | null;
+  /** Set when the person deleted their own login; the email is kept so the team can still see who it was. */
+  account_deleted_at?: Date | null; former_email?: string | null;
+};
 export type InvitationDoc = {
   id: string;
   sub_account_id: string;

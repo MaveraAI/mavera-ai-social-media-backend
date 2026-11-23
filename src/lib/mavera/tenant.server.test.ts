@@ -144,34 +144,45 @@ describe('membership changes and invitations', () => {
 });
 
 describe('deleting your own account', () => {
+  const me = { id: 'me', email: 'me@example.com' };
   const other = (role: 'admin' | 'member', revoked_at: Date | null = null) => ({ sub_account_id: account.id, user_id: 'them', role, revoked_at });
-  it('is refused while you are the only one who can run a brand', async () => {
-    const d = db({ subAccountMemberships: [member('admin'), other('member'), other('admin', new Date())] });
-    await expect(leaveAllAccounts(d, tx, 'me')).rejects.toThrow(AccountDeletionBlocked);
-    await expect(leaveAllAccounts(d, tx, 'me')).rejects.toThrow("You're the only administrator of Assigned. Make someone else an administrator");
+  const mavera = [{ agency_id: 'agency', user_id: 'mavera', role: 'admin' }];
+  it('is refused while you are the only admin and others still use the brand, even if the agency has admins', async () => {
+    const d = db({ subAccountMemberships: [member('admin'), other('member')], agencyMemberships: mavera });
+    await expect(leaveAllAccounts(d, tx, me)).rejects.toThrow(AccountDeletionBlocked);
+    await expect(leaveAllAccounts(d, tx, me)).rejects.toThrow("You're the only administrator of Assigned. Make someone else an administrator");
     expect(d.subAccountMemberships.rows[0]!['revoked_at']).toBeNull();
   });
-  it('is allowed when another admin or the agency can still run the brand, and retires all your access', async () => {
-    const withAdmin = db({
+  it('a revoked admin does not count as another admin', async () => {
+    await expect(leaveAllAccounts(db({ subAccountMemberships: [member('admin'), other('admin', new Date())] }), tx, me)).resolves.toBeUndefined();
+    const d = db({ subAccountMemberships: [member('admin'), other('admin', new Date()), { ...other('member'), user_id: 'third' }] });
+    await expect(leaveAllAccounts(d, tx, me)).rejects.toThrow(AccountDeletionBlocked);
+  });
+  it('is allowed when another admin stays, and marks your access as a deleted account', async () => {
+    const d = db({
       subAccountMemberships: [member('admin'), other('admin')],
       invitations: [{ id: 'i1', invited_by: 'me', accepted_at: null, revoked_at: null }, { id: 'i2', invited_by: 'them', accepted_at: null, revoked_at: null }],
     });
-    await leaveAllAccounts(withAdmin, tx, 'me');
-    expect(withAdmin.subAccountMemberships.rows[0]!['revoked_at']).toBeInstanceOf(Date);
-    expect(withAdmin.subAccountMemberships.rows[1]!['revoked_at']).toBeNull();
-    expect(withAdmin.invitations.rows.map((i) => !!i['revoked_at'])).toEqual([true, false]);
-    const agencyRuns = db({ subAccountMemberships: [member('admin')], agencyMemberships: [{ agency_id: 'agency', user_id: 'mavera', role: 'admin' }] });
-    await expect(leaveAllAccounts(agencyRuns, tx, 'me')).resolves.toBeUndefined();
+    await leaveAllAccounts(d, tx, me);
+    expect(d.subAccountMemberships.rows[0]).toMatchObject({ revoked_at: expect.any(Date), account_deleted_at: expect.any(Date), former_email: 'me@example.com' });
+    expect(d.subAccountMemberships.rows[1]!['revoked_at']).toBeNull();
+    expect(d.subAccountMemberships.rows[1]!['account_deleted_at']).toBeUndefined();
+    expect(d.invitations.rows.map((i) => !!i['revoked_at'])).toEqual([true, false]);
   });
-  it('plain members can always leave', async () => {
-    const d = db({ subAccountMemberships: [member('member')] });
-    await leaveAllAccounts(d, tx, 'me');
+  it('is allowed when nobody else uses the brand, and for plain members', async () => {
+    await expect(leaveAllAccounts(db({ subAccountMemberships: [member('admin')] }), tx, me)).resolves.toBeUndefined();
+    const d = db({ subAccountMemberships: [member('member'), other('member')] });
+    await leaveAllAccounts(d, tx, me);
     expect(d.subAccountMemberships.rows[0]!['revoked_at']).toBeInstanceOf(Date);
   });
   it('the only agency administrator cannot leave, another one can', async () => {
-    await expect(leaveAllAccounts(db({ agencyMemberships: [{ agency_id: 'agency', user_id: 'me', role: 'admin' }] }), tx, 'me')).rejects.toThrow('only agency administrator');
+    await expect(leaveAllAccounts(db({ agencyMemberships: [{ agency_id: 'agency', user_id: 'me', role: 'admin' }] }), tx, me)).rejects.toThrow('only agency administrator');
     const d = db({ agencyMemberships: [{ agency_id: 'agency', user_id: 'me', role: 'admin' }, { agency_id: 'agency', user_id: 'boss', role: 'admin' }] });
-    await leaveAllAccounts(d, tx, 'me');
+    await leaveAllAccounts(d, tx, me);
     expect(d.agencyMemberships.rows.map((r) => r['user_id'])).toEqual(['boss']);
+  });
+  it('a deleted account cannot be given access again', async () => {
+    const d = db({ subAccountMemberships: [member('admin'), { ...other('member', new Date()), account_deleted_at: new Date() }], users: [] });
+    await expect(changeMemberAccess(d, tx, 'me', account.id, 'them', 'restore')).rejects.toThrow('deleted their account');
   });
 });
