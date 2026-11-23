@@ -160,3 +160,41 @@ export async function acceptInvitationFor(c: Collections, tx: Tx, user: { id: st
     return invitation.sub_account_id;
   });
 }
+
+/** Thrown when deleting an account would leave a brand or agency with nobody to run it; the message is safe to show. */
+export class AccountDeletionBlocked extends Error {}
+
+const listNames = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+
+/**
+ * Account deletion: in one transaction that locks every sub-account the user belongs to,
+ * refuse when they are the only one left who can run a brand (no other brand admin and no
+ * agency admin) or the only admin of an agency; otherwise retire all their access.
+ * Memberships are kept with a revoked timestamp; their unanswered invitations are withdrawn.
+ */
+export async function leaveAllAccounts(c: Collections, tx: Tx, userId: string) {
+  return tx(async (session) => {
+    const agencyRows = await c.agencyMemberships.find({ user_id: userId }, { session }).toArray();
+    for (const row of agencyRows) {
+      if ((await c.agencyMemberships.countDocuments({ agency_id: row.agency_id, user_id: { $ne: userId } }, { session })) === 0) {
+        throw new AccountDeletionBlocked("You're the only agency administrator. Ask Mavera to add another administrator, then delete your account.");
+      }
+    }
+    const rows = await c.subAccountMemberships.find({ user_id: userId, revoked_at: null }, { session }).toArray();
+    const alone: string[] = [];
+    for (const row of [...rows].sort((a, b) => a.sub_account_id.localeCompare(b.sub_account_id))) {
+      const account = await lockSubAccount(c, row.sub_account_id, session);
+      if (!account || row.role !== 'admin') continue;
+      const otherAdmins = await c.subAccountMemberships.countDocuments({ sub_account_id: account.id, user_id: { $ne: userId }, role: 'admin', revoked_at: null }, { session });
+      const agencyAdmins = await c.agencyMemberships.countDocuments({ agency_id: account.agency_id, user_id: { $ne: userId } }, { session });
+      if (otherAdmins + agencyAdmins === 0) alone.push(account.name);
+    }
+    if (alone.length) {
+      throw new AccountDeletionBlocked(`You're the only administrator of ${listNames(alone)}. Make someone else an administrator in Team first, then delete your account.`);
+    }
+    const now = new Date();
+    await c.subAccountMemberships.updateMany({ user_id: userId, revoked_at: null }, { $set: { revoked_at: now } }, { session });
+    await c.agencyMemberships.deleteMany({ user_id: userId }, { session });
+    await c.invitations.updateMany({ invited_by: userId, accepted_at: null, revoked_at: null }, { $set: { revoked_at: now } }, { session });
+  });
+}

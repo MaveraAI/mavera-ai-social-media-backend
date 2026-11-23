@@ -186,3 +186,16 @@ export function invitationEmail(url: string, brandName: string, role: 'admin' | 
     smallPrint: `This invitation works until ${until} and only for this email address. If you weren't expecting it, you can ignore this email.`,
   });
 }
+
+/** Sent after someone deletes their own account. */
+export function accountDeletedEmail(name?: string | null) {
+  return renderEmail({
+    subject: 'Your Mavera AI account has been deleted',
+    preheader: 'Your login and your access to every brand have been removed.',
+    eyebrow: 'Account deleted',
+    title: `Your account has been deleted${greeting(name)}`,
+    intro: 'As you asked, we have deleted your Mavera AI login and removed your access to every brand. Your brands, campaigns and scheduled posts stay with the rest of the team. You are always welcome back.',
+    button: { label: 'Visit Mavera AI', url: 'https://mavera.ai' },
+    smallPrint: "If you didn't delete your account, contact the Mavera team straight away.",
+  });
+}
