@@ -34,7 +34,8 @@ All `/v1` routes need a signed-in user (session cookie). Changes must come from 
 | Method | Path | Purpose |
 |---|---|---|
 | GET/POST | `/api/auth/*` | Better Auth: sign up, sign in, sign out, session, email confirmation, password reset |
-| GET | `/v1/accounts` | Sub-accounts the user can see, agency admin flag, roles |
+| GET | `/v1/accounts` | Sub-accounts the user can see, agency admin flag, roles, and whether the welcome tour was completed (`tourCompleted`) |
+| POST | `/v1/me/tour-completed` | The user finished or skipped the welcome tour (it then won't start by itself on any device) |
 | GET | `/v1/accounts/:accountId/usage` | This month's video and image usage and allowances |
 | PUT | `/v1/accounts/:accountId/video-limit` | Set the monthly video (`limit`) and image (`image_limit`) allowances (agency admins) |
 | GET | `/v1/accounts/:accountId/people` | Members and invitations (sub-account admins) |

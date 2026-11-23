@@ -19,16 +19,27 @@ async function sha256(value: string) {
 
 export async function listAccounts({ db, userId }: AuthContext) {
   try {
-    const [accounts, agencyMemberships, roles] = await Promise.all([
+    const [accounts, agencyMemberships, roles, user] = await Promise.all([
       visibleAccounts(db, userId),
       db.agencyMemberships.countDocuments({ user_id: userId }),
       db.subAccountMemberships.find({ user_id: userId, revoked_at: null }, { projection: { _id: 0, sub_account_id: 1, role: 1 } }).toArray(),
+      db.users.findOne({ _id: userId }, { projection: { tour_completed_at: 1 } }),
     ]);
-    return { accounts, agencyAdmin: agencyMemberships > 0, roles: roles.map((r) => ({ sub_account_id: r.sub_account_id, role: r.role })) };
+    return {
+      accounts, agencyAdmin: agencyMemberships > 0, roles: roles.map((r) => ({ sub_account_id: r.sub_account_id, role: r.role })),
+      tourCompleted: !!user?.tour_completed_at,
+    };
   } catch (error) {
     console.error('listAccounts failed', error);
     throw new Error('Could not load sub-accounts');
   }
+}
+
+/** The user finished or skipped the welcome tour; it won't start by itself again on any device. */
+export async function completeTour({ db, userId }: AuthContext) {
+  await db.users.updateOne({ _id: userId }, { $set: { tour_completed_at: new Date() } })
+    .catch(() => { throw new Error('Could not save your tour progress'); });
+  return { ok: true };
 }
 
 export async function accountUsage(ctx: AuthContext, input: unknown) {

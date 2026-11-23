@@ -49,7 +49,11 @@ export type VideoReservationDoc = {
   created_at: Date;
 };
 /** Better Auth's `user` collection; `_id` is the user's UUID string. */
-export type AuthUserDoc = { _id: string; name: string; email: string; emailVerified: boolean; image?: string | null; createdAt: Date; updatedAt: Date };
+export type AuthUserDoc = {
+  _id: string; name: string; email: string; emailVerified: boolean; image?: string | null; createdAt: Date; updatedAt: Date;
+  /** When the user finished or skipped the welcome tour (so it starts by itself only once, on any device). */
+  tour_completed_at?: Date | null;
+};
 /** Better Auth's `account` collection; email/password logins use providerId "credential". */
 export type AuthAccountDoc = { _id: string; accountId: string; providerId: string; userId: string; password?: string | null; createdAt: Date; updatedAt: Date };
 /** Stored results of provisioning requests, replayed for a repeated Idempotency-Key (expires after 24 hours). */

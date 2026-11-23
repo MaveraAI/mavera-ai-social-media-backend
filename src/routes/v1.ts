@@ -13,6 +13,8 @@ const obj = (value: unknown) => (value && typeof value === 'object' ? value as R
 
 // ---------- Sub-accounts, usage, members, invitations ----------
 v1.get('/accounts', async (c) => c.json(await tenant.listAccounts(c.var.auth)));
+// The signed-in user finished or skipped the welcome tour.
+v1.post('/me/tour-completed', async (c) => c.json(await tenant.completeTour(c.var.auth)));
 v1.get('/accounts/:accountId/usage', async (c) => c.json(await tenant.accountUsage(c.var.auth, { account_id: c.req.param('accountId') })));
 v1.put('/accounts/:accountId/video-limit', async (c) =>
   c.json(await tenant.setVideoLimit(c.var.auth, { ...obj(await readJson(c)), account_id: c.req.param('accountId') })));
