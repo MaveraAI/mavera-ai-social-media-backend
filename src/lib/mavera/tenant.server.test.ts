@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Collections } from '@/lib/db/mongo.server';
 import { monthKey } from './tenant-shared';
-import { accountForClient, acceptInvitationFor, changeMemberAccess, requireAgency, reserveVideos, visibleAccounts } from './tenant.server';
+import { AccountDeletionBlocked, accountForClient, acceptInvitationFor, changeMemberAccess, leaveAllAccounts, requireAgency, reserveVideos, visibleAccounts } from './tenant.server';
 
 // Minimal in-memory stand-in for the MongoDB collections used by tenant.server.
 type Doc = Record<string, any>;
@@ -10,6 +10,7 @@ function matches(doc: Doc, filter: Doc): boolean {
     if (key === '$or') return (expected as Doc[]).some(f => matches(doc, f));
     const actual = doc[key];
     if (expected && typeof expected === 'object' && !(expected instanceof Date) && '$in' in expected) return (expected.$in as unknown[]).includes(actual);
+    if (expected && typeof expected === 'object' && !(expected instanceof Date) && '$ne' in expected) return actual !== expected.$ne;
     if (expected === null) return actual === null || actual === undefined;
     return actual === expected;
   });
@@ -32,6 +33,7 @@ function collection(rows: Doc[] = []) {
     updateOne: async (f: Doc, u: Doc) => { const doc = rows.find(r => matches(r, f)); if (doc) apply(doc, u); },
     updateMany: async (f: Doc, u: Doc) => { rows.filter(r => matches(r, f)).forEach(d => apply(d, u)); },
     countDocuments: async (f: Doc) => rows.filter(r => matches(r, f)).length,
+    deleteMany: async (f: Doc) => { for (let i = rows.length - 1; i >= 0; i--) if (matches(rows[i]!, f)) rows.splice(i, 1); },
   };
 }
 const tx = <T,>(fn: (session: never) => Promise<T>) => fn(undefined as never);
@@ -138,5 +140,38 @@ describe('membership changes and invitations', () => {
       subAccountMemberships: [member('admin'), { sub_account_id: account.id, user_id: 'them', role: 'member', revoked_at: null }],
     });
     await expect(changeMemberAccess(d, tx, 'me', account.id, 'them', 'remove')).rejects.toThrow('Agency administrators retain agency-wide access');
+  });
+});
+
+describe('deleting your own account', () => {
+  const other = (role: 'admin' | 'member', revoked_at: Date | null = null) => ({ sub_account_id: account.id, user_id: 'them', role, revoked_at });
+  it('is refused while you are the only one who can run a brand', async () => {
+    const d = db({ subAccountMemberships: [member('admin'), other('member'), other('admin', new Date())] });
+    await expect(leaveAllAccounts(d, tx, 'me')).rejects.toThrow(AccountDeletionBlocked);
+    await expect(leaveAllAccounts(d, tx, 'me')).rejects.toThrow("You're the only administrator of Assigned. Make someone else an administrator");
+    expect(d.subAccountMemberships.rows[0]!['revoked_at']).toBeNull();
+  });
+  it('is allowed when another admin or the agency can still run the brand, and retires all your access', async () => {
+    const withAdmin = db({
+      subAccountMemberships: [member('admin'), other('admin')],
+      invitations: [{ id: 'i1', invited_by: 'me', accepted_at: null, revoked_at: null }, { id: 'i2', invited_by: 'them', accepted_at: null, revoked_at: null }],
+    });
+    await leaveAllAccounts(withAdmin, tx, 'me');
+    expect(withAdmin.subAccountMemberships.rows[0]!['revoked_at']).toBeInstanceOf(Date);
+    expect(withAdmin.subAccountMemberships.rows[1]!['revoked_at']).toBeNull();
+    expect(withAdmin.invitations.rows.map((i) => !!i['revoked_at'])).toEqual([true, false]);
+    const agencyRuns = db({ subAccountMemberships: [member('admin')], agencyMemberships: [{ agency_id: 'agency', user_id: 'mavera', role: 'admin' }] });
+    await expect(leaveAllAccounts(agencyRuns, tx, 'me')).resolves.toBeUndefined();
+  });
+  it('plain members can always leave', async () => {
+    const d = db({ subAccountMemberships: [member('member')] });
+    await leaveAllAccounts(d, tx, 'me');
+    expect(d.subAccountMemberships.rows[0]!['revoked_at']).toBeInstanceOf(Date);
+  });
+  it('the only agency administrator cannot leave, another one can', async () => {
+    await expect(leaveAllAccounts(db({ agencyMemberships: [{ agency_id: 'agency', user_id: 'me', role: 'admin' }] }), tx, 'me')).rejects.toThrow('only agency administrator');
+    const d = db({ agencyMemberships: [{ agency_id: 'agency', user_id: 'me', role: 'admin' }, { agency_id: 'agency', user_id: 'boss', role: 'admin' }] });
+    await leaveAllAccounts(d, tx, 'me');
+    expect(d.agencyMemberships.rows.map((r) => r['user_id'])).toEqual(['boss']);
   });
 });

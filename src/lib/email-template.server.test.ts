@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { confirmEmail, invitationEmail, renderEmail, resetPasswordEmail, welcomeEmail } from './email-template.server';
+import { accountDeletedEmail, confirmEmail, invitationEmail, renderEmail, resetPasswordEmail, welcomeEmail } from './email-template.server';
 
 vi.stubEnv('FRONTEND_URL', 'https://social.mavera.ai');
 
@@ -28,6 +28,13 @@ describe('branded emails', () => {
     expect(invite.html).toContain('Approve and schedule posts');
     expect(invite.html).toContain('works until 26 November 2026');
     expect(invitationEmail('https://x', 'Acme', 'admin', new Date()).html).toContain('Invite and manage the team');
+  });
+
+  it('account deleted email confirms it and says what stays with the team', () => {
+    const m = accountDeletedEmail('Shahid Satti');
+    expect(m.subject).toBe('Your Mavera AI account has been deleted');
+    expect(m.html).toContain('Your account has been deleted, Shahid');
+    expect(m.html).toContain('stay with the rest of the team');
   });
 
   it('escapes names and brand names so nobody can inject HTML into an email', () => {

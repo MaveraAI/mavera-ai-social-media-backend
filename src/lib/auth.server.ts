@@ -1,13 +1,15 @@
 // Server-only Better Auth instance. Users, sessions and verification tokens live
 // in MongoDB (collections: user, account, session, verification).
 import { betterAuth } from 'better-auth';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import bcrypt from 'bcryptjs';
-import { getMongo } from '@/lib/db/mongo.server';
+import { collections, getMongo, withTransaction } from '@/lib/db/mongo.server';
+import { AccountDeletionBlocked, leaveAllAccounts } from '@/lib/mavera/tenant.server';
 import { sendMail } from '@/lib/mail.server';
 import { onboardingViaN8n, sendOnboardingEmail } from '@/lib/onboarding-mail.server';
-import { confirmEmail, resetPasswordEmail, welcomeEmail, type WelcomeInfo } from '@/lib/email-template.server';
+import { accountDeletedEmail, confirmEmail, resetPasswordEmail, welcomeEmail, type WelcomeInfo } from '@/lib/email-template.server';
 import { cookieSameSite, frontendOrigins, primaryFrontendUrl } from '@/config';
 
 const { client, db } = getMongo();
@@ -56,6 +58,31 @@ export const auth = betterAuth({
         return;
       }
       await sendMail({ to: user.email, ...resetPasswordEmail(url, user.name) });
+    },
+  },
+  // "Delete my account": always needs the current password, and never leaves a brand without an administrator.
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === '/delete-user' && (typeof ctx.body?.password !== 'string' || !ctx.body.password || ctx.body.token)) {
+        throw new APIError('BAD_REQUEST', { message: 'Enter your password to delete your account' });
+      }
+    }),
+  },
+  user: {
+    deleteUser: {
+      enabled: true,
+      beforeDelete: async (user) => {
+        try {
+          await leaveAllAccounts(await collections(), withTransaction, user.id);
+        } catch (error) {
+          if (error instanceof AccountDeletionBlocked) throw new APIError('BAD_REQUEST', { message: error.message });
+          console.error('[auth] Account deletion failed', error instanceof Error ? error.message : error);
+          throw new APIError('INTERNAL_SERVER_ERROR', { message: 'Could not delete your account. Please try again.' });
+        }
+      },
+      afterDelete: async (user) => {
+        await sendMail({ to: user.email, ...accountDeletedEmail(user.name) }).catch(() => false);
+      },
     },
   },
   emailVerification: {
