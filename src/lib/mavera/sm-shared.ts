@@ -273,16 +273,61 @@ export type Job = {
   error?: string | null;
 };
 
-/** Plain-English reason for a failed campaign or post, from the raw upstream error. */
-export function friendlyJobError(error?: string | null): string {
-  if (!error) return "Something went wrong while creating this campaign. Please try again.";
-  if (/\b402\b|RESOURCE_EXHAUSTED|credits are depleted|billing|quota/i.test(error)) {
-    return "The AI service has run out of credits, so nothing could be generated. Ask your administrator to top up the AI account, then try again.";
+/**
+ * Plain-English reason behind a raw upstream error (Google, OpenAI, n8n…), or null when it isn't recognised.
+ * Customers never see status codes or JSON.
+ */
+export function errorReason(error?: string | null): string | null {
+  if (!error) return null;
+  if (/allowance (reached|exceeded)|monthly (video|image) (limit|allowance)/i.test(error)) {
+    return "you've reached this month's allowance. It resets at the start of next month, or your administrator can raise it.";
   }
-  if (/\b429\b|rate limit|too many requests/i.test(error)) return "The AI service is busy right now. Please try again in a few minutes.";
-  if (/safety|blocked|policy/i.test(error)) return "The AI service declined this brief. Try rewording it and generate again.";
-  const text = error.replace(/\s+/g, " ").trim();
+  if (/\b402\b|RESOURCE_EXHAUSTED|credits? (are |is )?(depleted|exhausted)|insufficient (credit|balance|funds)|billing|quota/i.test(error)) {
+    return "our AI service is temporarily out of credit. Please try again later, or contact Mavera support if it keeps happening.";
+  }
+  if (/\b429\b|rate.?limit|too many requests/i.test(error)) return "our AI service is busy right now. Please try again in a few minutes.";
+  if (/safety|blocked|policy|moderation|inappropriate/i.test(error)) {
+    return "the AI declined this request because of its content rules. Try rewording the brief and generate again.";
+  }
+  if (/time(d)?[ -]?out|deadline exceeded|\b504\b/i.test(error)) return "our AI service took too long to answer. Please try again.";
+  if (/\b50[0-3]\b|internal error|unavailable|overloaded/i.test(error)) return "our AI service had a temporary problem. Please try again shortly.";
+  return null;
+}
+
+/** True when a raw error looks like machine output (status codes, JSON, stack traces) rather than a sentence for people. */
+function looksTechnical(text: string): boolean {
+  return /[{}[\]\\]|^\s*\d{3}\b|https?:\/\/|Error:|\bat \w+ \(/.test(text);
+}
+
+function sentence(reason: string): string {
+  return reason.charAt(0).toUpperCase() + reason.slice(1);
+}
+
+/** Plain-English reason for a failed campaign, from the raw upstream error. */
+export function friendlyJobError(error?: string | null): string {
+  const reason = errorReason(error);
+  if (reason) return `Nothing could be created: ${reason}`;
+  const text = (error ?? "").replace(/\s+/g, " ").trim();
+  if (!text || looksTechnical(text)) return "Something went wrong while creating this campaign. Please try again.";
   return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+}
+
+/** Plain-English message for a single image or video that failed, e.g. "Video generation failed: …". */
+export function friendlyPostError(type: "image" | "video", error?: string | null): string {
+  const what = type === "video" ? "Video" : "Image";
+  const reason = errorReason(error);
+  if (reason) return `${what} generation failed: ${reason}`;
+  const text = (error ?? "").replace(/\s+/g, " ").trim();
+  if (!text || looksTechnical(text)) return `${what} generation failed. Please try creating it again.`;
+  return `${what} generation failed: ${text.length > 160 ? `${text.slice(0, 160)}…` : text}`;
+}
+
+/** Plain-English reason a change (edit or regenerate) didn't work, or null to use the default wording. */
+export function friendlyEditError(error?: string | null): string | null {
+  const reason = errorReason(error);
+  if (reason) return sentence(reason);
+  const text = (error ?? "").replace(/\s+/g, " ").trim();
+  return !text || looksTechnical(text) ? null : text;
 }
 export type Post = {
   post_id: string; type: "image" | "video"; status: "generating" | "ready" | "failed";
