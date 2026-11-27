@@ -76,9 +76,9 @@ async function lockSubAccount(c: Collections, id: string, session: ClientSession
 
 type Tx = <T>(fn: (session: ClientSession) => Promise<T>) => Promise<T>;
 
-/** Images reserved this month; released campaigns give their images back. */
-export const imagesUsed = (rows: { images?: number | undefined; state?: string | undefined }[]) =>
-  rows.reduce((n, r) => n + (r.state === 'released' ? 0 : r.images ?? 0), 0);
+/** Images used this month: released campaigns give all their images back, finished ones keep only the images created. */
+export const imagesUsed = (rows: { images?: number | undefined; images_charged?: number | undefined; state?: string | undefined }[]) =>
+  rows.reduce((n, r) => n + (r.state === 'released' ? 0 : r.images_charged ?? r.images ?? 0), 0);
 
 /** reserve_sub_account_videos(): returns the reservation id, or throws when the monthly allowance would be exceeded. */
 export async function reserveVideos(c: Collections, tx: Tx, userId: string, subId: string, count: number, images = 0) {
@@ -88,7 +88,7 @@ export async function reserveVideos(c: Collections, tx: Tx, userId: string, subI
     const account = await lockSubAccount(c, subId, session);
     if (!account || !(await subAccountAccess(c, userId, account, false, session))) throw new Error('Access denied');
     const month = monthKey(new Date(), account.timezone);
-    const rows = await c.reservations.find({ sub_account_id: subId, month_key: month }, { session, projection: { charged: 1, images: 1, state: 1 } }).toArray();
+    const rows = await c.reservations.find({ sub_account_id: subId, month_key: month }, { session, projection: { charged: 1, images: 1, images_charged: 1, state: 1 } }).toArray();
     const used = rows.reduce((n, r) => n + r.charged, 0);
     const usedImages = imagesUsed(rows);
     const imageLimit = account.monthly_image_limit ?? defaultPlan().monthly_image_limit;

@@ -46,7 +46,7 @@ export async function accountUsage(ctx: AuthContext, input: unknown) {
   const data = validate(z.object({ account_id: id }))(input);
   const account = await accountById(ctx.db, ctx.userId, data.account_id);
   const month = monthKey(new Date(), account.timezone);
-  const rows = await ctx.db.reservations.find({ sub_account_id: account.id, month_key: month }, { projection: { _id: 0, charged: 1, images: 1, state: 1 } }).toArray()
+  const rows = await ctx.db.reservations.find({ sub_account_id: account.id, month_key: month }, { projection: { _id: 0, charged: 1, images: 1, images_charged: 1, state: 1 } }).toArray()
     .catch(() => { throw new Error('Could not load usage'); });
   const used = rows.reduce((n, r) => n + r.charged, 0);
   const images = imagesUsed(rows);

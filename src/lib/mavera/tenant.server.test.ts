@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Collections } from '@/lib/db/mongo.server';
 import { monthKey } from './tenant-shared';
-import { AccountDeletionBlocked, accountForClient, hasPendingInvitation, acceptInvitationFor, changeMemberAccess, leaveAllAccounts, requireAgency, reserveVideos, visibleAccounts } from './tenant.server';
+import { AccountDeletionBlocked, accountForClient, hasPendingInvitation, imagesUsed, acceptInvitationFor, changeMemberAccess, leaveAllAccounts, requireAgency, reserveVideos, visibleAccounts } from './tenant.server';
 
 // Minimal in-memory stand-in for the MongoDB collections used by tenant.server.
 type Doc = Record<string, any>;
@@ -103,6 +103,9 @@ describe('monthly video reservations', () => {
     // Released campaigns give their images back.
     const freed = db({ subAccountMemberships: [member('member')], reservations: images(30, 'released') });
     await expect(reserveVideos(freed, tx, 'me', account.id, 0, 30)).resolves.toEqual(expect.any(String));
+  });
+  it('only counts the images a finished campaign actually created', () => {
+    expect(imagesUsed([{ images: 5, images_charged: 2, state: 'done' }, { images: 3, state: 'accepted' }, { images: 4, state: 'released' }, { images: 1, images_charged: 0, state: 'done' }])).toBe(5);
   });
 });
 

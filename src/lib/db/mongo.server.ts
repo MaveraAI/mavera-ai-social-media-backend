@@ -47,6 +47,8 @@ export type VideoReservationDoc = {
   charged: number;
   /** Images this campaign asked for (counted against the monthly image allowance unless released). */
   images?: number;
+  /** Set when the campaign finishes: images actually created. Failed images are given back. */
+  images_charged?: number;
   job_id: string | null;
   state: ReservationState;
   /** "revise" when the video was used by editing or regenerating a post (post_id says which). */

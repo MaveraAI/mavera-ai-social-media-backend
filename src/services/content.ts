@@ -60,9 +60,11 @@ export async function importExistingBrands(ctx: AuthContext) {
       if (detail.job?.client_id !== account.client_id) throw new Error('Campaign ownership mismatch');
       const requested = job.video_posts ?? detail.posts.filter((p) => p.type === 'video').length;
       const charged = detail.done ? detail.posts.filter((p) => p.type === 'video' && p.status === 'ready').length : requested;
+      const imagesCreated = detail.posts.filter((p) => p.type === 'image' && p.status === 'ready').length;
       await db.reservations.insertOne({
         id: crypto.randomUUID(), sub_account_id: account.id, user_id: userId, month_key: monthKey(new Date(job.created_at), account.timezone),
-        requested, charged, images: job.image_posts ?? detail.posts.filter((p) => p.type === 'image').length, job_id: job.job_id, state: detail.done ? 'done' : 'accepted', created_at: new Date(job.created_at),
+        requested, charged, images: job.image_posts ?? detail.posts.filter((p) => p.type === 'image').length, ...(detail.done ? { images_charged: imagesCreated } : {}),
+        job_id: job.job_id, state: detail.done ? 'done' : 'accepted', created_at: new Date(job.created_at),
       }).catch(() => { throw new Error('Could not import video usage history'); });
     }
   }
@@ -154,10 +156,12 @@ export async function getJob(ctx: AuthContext, input: unknown) {
   const data = validate(z.object({ job_id: z.string().regex(/^[A-Za-z0-9_-]{3,100}$/) }))(input);
   const { result, account } = await jobForAccount(ctx.db, ctx.userId, data.job_id);
   if (result.done) {
-    const ready = result.posts.filter((p) => p.type === 'video' && p.status === 'ready').length;
+    // Only what was actually created counts: failed videos and images are given back.
+    // Campaigns finished before images were given back (no images_charged yet) are corrected too.
+    const ready = (type: 'image' | 'video') => result.posts.filter((p) => p.type === type && p.status === 'ready').length;
     await ctx.db.reservations.updateOne(
-      { job_id: data.job_id, sub_account_id: account.id, state: { $in: ['accepted', 'uncertain'] } },
-      { $set: { state: 'done', charged: ready } },
+      { job_id: data.job_id, sub_account_id: account.id, $or: [{ state: { $in: ['accepted', 'uncertain'] } }, { state: 'done', images_charged: { $exists: false } }] },
+      { $set: { state: 'done', charged: ready('video'), images_charged: ready('image') } },
     );
   }
   return result;

@@ -6,11 +6,15 @@ import type { Collections } from '@/lib/db/mongo.server';
 const { sm } = vi.hoisted(() => ({ sm: vi.fn() }));
 vi.mock('@/lib/mavera/sm-api.server', () => ({ smRequest: sm }));
 vi.mock('@/lib/db/mongo.server', () => ({ withTransaction: <T>(fn: (s: never) => Promise<T>) => fn(undefined as never) }));
-const { revisePost, setPostVersion, uploadReference, createJob, referenceBelongsTo } = await import('./content');
+const { revisePost, setPostVersion, uploadReference, createJob, referenceBelongsTo, getJob } = await import('./content');
 
 type Doc = Record<string, any>;
-const matches = (doc: Doc, filter: Doc) => Object.entries(filter).every(([k, v]) =>
-  v === null ? doc[k] === null || doc[k] === undefined : v && typeof v === 'object' && '$in' in v ? (v['$in'] as unknown[]).includes(doc[k]) : doc[k] === v);
+const matches = (doc: Doc, filter: Doc): boolean => Object.entries(filter).every(([k, v]) =>
+  k === '$or' ? (v as Doc[]).some((f) => matches(doc, f))
+  : v === null ? doc[k] === null || doc[k] === undefined
+  : v && typeof v === 'object' && '$in' in v ? (v['$in'] as unknown[]).includes(doc[k])
+  : v && typeof v === 'object' && '$exists' in v ? (doc[k] !== undefined) === v['$exists']
+  : doc[k] === v);
 function collection(rows: Doc[] = []) {
   const apply = (d: Doc, u: Doc) => { Object.assign(d, u['$set'] ?? {}); for (const [k, v] of Object.entries(u['$inc'] ?? {})) d[k] = (d[k] ?? 0) + (v as number); };
   return {
@@ -35,6 +39,26 @@ const video = { post_id: 'job_1_abc_p01', type: 'video', status: 'ready' };
 const image = { post_id: 'job_1_abc_p02', type: 'image', status: 'ready' };
 
 beforeEach(() => { sm.mockReset(); });
+
+describe('finished campaigns', () => {
+  const reservation = (over: Doc = {}) => ({ id: 'r1', sub_account_id: 'acc-1', job_id: 'job_1_abc', requested: 1, charged: 1, images: 2, state: 'accepted', ...over });
+  it('counts only the images and videos that were created', async () => {
+    const c = ctx();
+    c.db.jobs.rows.push({ job_id: 'job_1_abc', sub_account_id: 'acc-1' });
+    c.db.reservations.rows.push(reservation());
+    sm.mockResolvedValue(job([{ ...video, status: 'failed' }, image, { ...image, post_id: 'job_1_abc_p03', status: 'failed' }]));
+    await getJob(c, { job_id: 'job_1_abc' });
+    expect(c.db.reservations.rows[0]).toMatchObject({ state: 'done', charged: 0, images_charged: 1 });
+  });
+  it('gives back the images of a campaign that failed before creating anything, even if it finished earlier', async () => {
+    const c = ctx();
+    c.db.jobs.rows.push({ job_id: 'job_1_abc', sub_account_id: 'acc-1' });
+    c.db.reservations.rows.push(reservation({ state: 'done', charged: 0, images: 1 }));
+    sm.mockResolvedValue(job([]));
+    await getJob(c, { job_id: 'job_1_abc' });
+    expect(c.db.reservations.rows[0]).toMatchObject({ state: 'done', charged: 0, images_charged: 0 });
+  });
+});
 
 describe('editing and regenerating posts', () => {
   it('sends the change and uses 1 video from the allowance for a video', async () => {
